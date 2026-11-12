@@ -65,15 +65,37 @@ import {
 } from './safety.js';
 import { storeAttachment, validateAttachment, validateVoice } from './media.js';
 import { chunkLines, fullSummaryChunks, summaryLines, summaryRecord } from './export.js';
+import { resolveTestTarget } from './sandbox.js';
 import {
-  appendAudit,
+  appendAudit as persistAudit,
   dailySpend,
-  recordSessionCompleted,
-  recordTurn,
-  saveSession,
+  recordSessionCompleted as persistSessionCompleted,
+  recordTurn as persistTurn,
+  saveSession as persistSession,
 } from './store.js';
 
 const FINAL_STATUS = new Set(['COMPLETED', 'OPTED_OUT', 'ERASED']);
+
+/* Sandbox/test sessions are deliberately ephemeral: skip disk, audit and
+ * metrics side effects so free question tests never look like real sessions. */
+function isTestSession(session) {
+  return !!session?.meta?.testSession;
+}
+
+function saveSession(session) {
+  if (isTestSession(session)) return session;
+  return persistSession(session);
+}
+
+function recordTurnFor(session, payload) {
+  if (isTestSession(session)) return;
+  persistTurn(payload);
+}
+
+function recordCompletedFor(session) {
+  if (isTestSession(session)) return;
+  persistSessionCompleted();
+}
 
 function nowMs(session) {
   return Date.now() + (session.clockOffsetMs || 0);
@@ -108,7 +130,7 @@ function reply(session, text, meta = {}, type = 'text') {
     event(session, 'output.blocked', { issues: safe.issues });
     audit(session, 'security.output_blocked', { issues: safe.issues }, 'system', 'block');
   }
-  recordTurn({ direction: 'out' });
+  recordTurnFor(session, { direction: 'out' });
   return addMessage(session, { direction: 'out', type, text: safe.text, meta });
 }
 
@@ -128,7 +150,8 @@ function event(session, type, data = {}) {
 }
 
 function audit(session, type, payload = {}, actor = 'system', action = '') {
-  appendAudit({
+  if (isTestSession(session)) return;
+  persistAudit({
     type,
     actor,
     action,
@@ -203,7 +226,7 @@ function addBudget(session, meta) {
   session.budget.tokensIn += Number(meta.tokensIn || 0);
   session.budget.tokensOut += Number(meta.tokensOut || 0);
   session.budget.spentUsd = Number((session.budget.spentUsd + Number(meta.costUsd || 0)).toFixed(6));
-  recordTurn({
+  recordTurnFor(session, {
     direction: 'llm',
     model: meta.model || 'deterministic',
     tokensIn: meta.tokensIn || 0,
@@ -698,7 +721,7 @@ function maybeReminder(session) {
   if (nowMs(session) < due) return false;
   session.meta.reminderSent = true;
   session.counters.reminders += 1;
-  recordTurn({ direction: 'out' });
+  recordTurnFor(session, { direction: 'out' });
   addMessage(session, {
     direction: 'out',
     type: 'template',
@@ -1017,7 +1040,7 @@ function completeSession(session) {
   );
   event(session, 'session.completed', {});
   audit(session, 'session.completed', { items: session.progress.answered }, 'data-subject', 'complete');
-  recordSessionCompleted();
+  recordCompletedFor(session);
 }
 
 async function handleVoiceConfirmation(session, text) {
@@ -1082,7 +1105,8 @@ async function processAnswer(session, text, input, ctx) {
       return;
     }
     const fileId = randomId('fil_', 9);
-    const file = storeAttachment(session.id, validation, fileId);
+    // Never persist media for ephemeral sandbox sessions.
+    const file = isTestSession(session) ? null : storeAttachment(session.id, validation, fileId);
     const attachment = {
       id: fileId,
       name: validation.name,
@@ -1426,7 +1450,7 @@ export async function handleInbound(session, input = {}, ctx = {}) {
       event(session, 'attachment.rejected', { code: check.code });
       audit(session, 'security.attachment_rejected', { code: check.code, name: input.attachment.name }, actor, 'block');
       updateProgress(session);
-      recordTurn({ direction: 'in' });
+      recordTurnFor(session, { direction: 'in' });
       return { replies: [msg], session, erase: false };
     }
   }
@@ -1465,7 +1489,7 @@ export async function handleInbound(session, input = {}, ctx = {}) {
   session.lastInboundAt = iso(session);
   session.counters.turns += 1;
   session.meta.lastOrigin = origin;
-  recordTurn({ direction: 'in' });
+  recordTurnFor(session, { direction: 'in' });
 
   maybeReminder(session);
 
@@ -1688,12 +1712,105 @@ export function createSessionReply(session) {
   return session;
 }
 
+function resetTestState(session) {
+  const { testTarget, testCreatedAt, testResets } = session.meta;
+  session.messages = [];
+  session.events = [];
+  session.items = {};
+  session.status = 'IN_PROGRESS';
+  session.riskLevel = 'none';
+  session.escalations = [];
+  session.pendingConfirmation = null;
+  session.sectionReview = null;
+  session.pendingCorrection = null;
+  session.correctionReturn = null;
+  session.pendingVoice = null;
+  session.summary = null;
+  session.completedAt = null;
+  session.lastError = null;
+  session.lastInboundAt = null;
+  session.lastOutboundAt = null;
+  session.lastTemplateAt = null;
+  session.destinationEmail = null;
+  session.clockOffsetMs = 0;
+  session.reminderSent = false;
+  session.budget = {
+    limitUsd: config.limits.sessionBudgetUsd,
+    spentUsd: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    audioMinutes: 0,
+    exhausted: false,
+    warned: false,
+  };
+  session.q21Step = 0;
+  session.q21Steps = [];
+  session.progress = { answered: 0, partial: 0, total: totalItems() };
+  session.counters = {
+    turns: 0,
+    clarifications: 0,
+    reminders: 0,
+    blocked: 0,
+    corrections: 0,
+    spam: 0,
+    nonsense: 0,
+  };
+  session.flags = { forceLlmFailure: false, forceBadJson: false };
+  session.meta = {
+    testSession: true,
+    testTarget,
+    testCreatedAt,
+    testResets: (testResets || 0) + 1,
+  };
+}
+
+/**
+ * Position an ephemeral sandbox session at a target question (kind: "item") or
+ * at the first question of a section (kind: "section"). With `reset`, the
+ * conversation is cleared and the same target is asked again, which makes it
+ * cheap to try several different answers to one question.
+ */
+export function beginTestSession(session, { reset = false, itemId, sectionId } = {}) {
+  if (!session?.meta?.testSession) return session;
+  if (itemId || sectionId) {
+    const target = resolveTestTarget({ itemId, sectionId });
+    if (target) session.meta.testTarget = target;
+  }
+  if (reset) resetTestState(session);
+  const target = session.meta.testTarget;
+  const item = getItem(target?.itemId);
+  if (!item) return session;
+  session.currentSectionId = item.sectionId;
+  session.currentItemId = item.id;
+  if (target.kind === 'item') {
+    // Jumping straight to one question should not replay its section intro, but
+    // later sections must still introduce themselves when the tester continues.
+    session.meta.introsSent = [item.sectionId];
+  } else {
+    session.meta.introsSent = [];
+  }
+  if (item.id === 'Q21') {
+    session.q21Step = 0;
+    session.q21Steps = [];
+  }
+  askQuestion(session, item, { step: item.id === 'Q21' ? q21Step(session) : null });
+  event(session, 'sandbox.started', {
+    kind: target.kind,
+    itemId: item.id,
+    sectionId: item.sectionId,
+    reset,
+  });
+  return session;
+}
+
 export function publicSession(session, { reveal = true } = {}) {
   return {
     id: session.id,
     name: reveal ? session.name : firstName(session.name),
     phone: reveal ? session.phoneE164 : maskPhone(session.phoneE164),
     status: session.status,
+    testMode: !!session.meta?.testSession,
+    testTarget: session.meta?.testTarget || null,
     surveyVersion: session.surveyVersion,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,

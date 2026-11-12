@@ -90,6 +90,18 @@
           </div>
         </header>
 
+        <div class="sandbox-bar hidden" id="sandbox-bar">
+          <div class="sandbox-copy">
+            <strong>Prueba libre</strong>
+            <span id="sandbox-target">Sin pregunta seleccionada</span>
+          </div>
+          <div class="sandbox-actions">
+            <button class="ghost-btn small" id="sandbox-repeat" type="button">Repetir</button>
+            <button class="ghost-btn small" id="sandbox-change" type="button">Cambiar</button>
+            <button class="text-btn" id="sandbox-exit" type="button">Salir</button>
+          </div>
+        </div>
+
         <div class="chat-body" id="chat-body">
           <div class="empty-chat" id="empty-chat">
             <div class="empty-mark">B</div>
@@ -194,6 +206,19 @@
         <button class="ghost-btn" id="lab-new-session" type="button">Nueva sesión de prueba</button>
         <button class="ghost-btn" id="lab-clear-log" type="button">Limpiar registro</button>
       </div>
+
+      <section class="lab-group">
+        <h3>Prueba libre por pregunta</h3>
+        <p class="lab-note">
+          Salta directo a cualquier pregunta o sección, sin edad, consentimiento ni historial.
+          Estas pruebas no se guardan como sesiones reales y puedes repetir la misma pregunta con respuestas distintas.
+        </p>
+        <div class="scenario-grid">
+          <button class="scenario" id="lab-test-question" type="button"><strong>Probar una pregunta</strong><span>Elige pregunta o sección y salta directo</span></button>
+          <button class="scenario" id="lab-test-repeat" type="button"><strong>Repetir pregunta actual</strong><span>Limpia el intento y vuelve a preguntar</span></button>
+          <button class="scenario" id="lab-test-exit" type="button"><strong>Salir de prueba libre</strong><span>Vuelve a la conversación real</span></button>
+        </div>
+      </section>
 
       <section class="lab-group">
         <h3>Ataques y abuso</h3>

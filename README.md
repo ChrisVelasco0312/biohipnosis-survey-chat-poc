@@ -34,6 +34,9 @@ seguridad.
   costos y exportación JSON/HTML/imprimible.
 - Laboratorio de pruebas con escenarios de abuso, errores, spam, duplicados,
   adjuntos maliciosos, crisis, suite de seguridad y auditoría.
+- **Prueba libre por pregunta o sección**: salta directo a cualquier ítem,
+  repite el intento con otras respuestas y no deja sesiones, auditoría ni
+  métricas (vive solo en memoria durante 2 h).
 - Exportación a HTML imprimible (PDF con el diálogo de impresión) y correo
   **simulado** en una bandeja local.
 
@@ -96,6 +99,9 @@ export POC_MASTER_KEY="$(openssl rand -base64 32)"
    - Adjunto `.exe` disfrazado de PDF.
    - Voz con confianza baja (pide confirmación).
    - Suite de seguridad 22/22.
+   - **Prueba libre por pregunta**: elegir una pregunta o sección y saltar
+     directo a ella; «Repetir» limpia el intento para probar otra respuesta.
+     Estas pruebas viven solo en memoria y no se guardan como sesiones reales.
 5. Abrir la **consola** (icono de panel) → token `poc-admin`:
    - Ver respuestas, eventos, costos y auditoría.
    - Revelar PII (queda auditado).
@@ -120,6 +126,7 @@ server/index.js  ── auth de sesión/admin, rate limit, estáticos, headers
   ├─ store.js        sesiones cifradas, índice, auditoría, métricas
   ├─ crypto.js       AES-256-GCM, hashes, comparación segura
   ├─ media.js        adjuntos y voz simulada
+  ├─ sandbox.js      pruebas libres efímeras (solo memoria, TTL 2 h)
   ├─ export.js       resumen, HTML imprimible, correo simulado
   └─ securitySuite.js 22 controles deterministas
 ```

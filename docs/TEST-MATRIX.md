@@ -129,3 +129,8 @@ Para el flujo completo automatizado, `tests/integration/engine.test.js` recorre
 los 39 ítems con un mapa de respuestas realistas y confirma el estado
 `COMPLETED`. El laboratorio permite repetir los escenarios hostiles a mano sin
 escribir código.
+
+La **prueba libre por pregunta** del laboratorio crea una sesión sandbox en
+memoria (`tst_…`), salta al ítem o sección elegida y permite repetirla con
+«Repetir». No se escribe en `data/sessions`, ni en el índice, la auditoría o las
+métricas, y expira a las 2 h o al pulsar «Salir».

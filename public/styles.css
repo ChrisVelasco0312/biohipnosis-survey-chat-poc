@@ -2600,3 +2600,139 @@ svg {
   0% { box-shadow: 0 0 0 0 rgba(0, 168, 132, 0.45); }
   100% { box-shadow: 0 0 0 12px rgba(0, 168, 132, 0); }
 }
+
+/* Sandbox: free question testing */
+.sandbox-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--accent-soft);
+  z-index: 4;
+}
+
+.sandbox-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sandbox-copy strong {
+  color: var(--accent-dark);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sandbox-copy span {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandbox-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ghost-btn.small {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 11px;
+}
+
+.lab-note {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.lab-search {
+  margin: 0 0 12px;
+  border-color: var(--line);
+  background: var(--panel-2);
+}
+
+.picker-list {
+  max-height: 48dvh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.picker-section {
+  margin-bottom: 14px;
+}
+
+.picker-section:last-child {
+  margin-bottom: 0;
+}
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.picker-head strong {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.picker-items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.picker-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.picker-item:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.picker-id {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--line);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+@media (max-width: 640px) {
+  .picker-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sandbox-actions .text-btn {
+    padding: 4px 6px;
+  }
+}

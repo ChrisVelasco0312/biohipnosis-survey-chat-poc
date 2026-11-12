@@ -65,6 +65,7 @@ const state = {
   busy: false,
   attachment: null,
   filter: '',
+  returnToChat: null,
   voice: { stream: null, recorder: null, chunks: [], timer: null, seconds: 0, url: null, cleanup: null },
 };
 
@@ -339,7 +340,8 @@ async function loadConfig() {
 /* ------------------------------------------------------------------ */
 
 function upsertChat(session, token = state.token) {
-  if (!session?.id || !token) return;
+  // Free test sessions are ephemeral and must never appear as real chats.
+  if (!session?.id || !token || session.testMode) return;
   const entry = {
     id: session.id,
     token,
@@ -459,10 +461,11 @@ async function openChat(id, token, { silent = false } = {}) {
 
 async function refreshCurrentSession({ silent = true } = {}) {
   if (!state.session || !state.token) return null;
+  const sandbox = !!state.session.testMode;
   try {
-    const data = await api(`/api/sessions/${encodeURIComponent(state.session.id)}`, { token: state.token });
+    const data = await api(sessionEndpoint(state.session), { token: state.token });
     state.session = data.session;
-    upsertChat(data.session, state.token);
+    if (!sandbox) upsertChat(data.session, state.token);
     render();
     return data.session;
   } catch (error) {
@@ -478,6 +481,7 @@ async function refreshCurrentSession({ silent = true } = {}) {
 function render() {
   renderHeader();
   renderMessages();
+  renderSandboxBar();
   renderComposer();
   renderChats();
   if (state.adminToken) renderInspectorShell();
@@ -485,12 +489,14 @@ function render() {
 
 function renderHeader() {
   const session = state.session;
-  const name = session?.name || 'Entrevista inicial';
+  const sandbox = !!session?.testMode;
+  const target = session?.testTarget;
+  const name = sandbox ? 'Prueba libre' : session?.name || 'Entrevista inicial';
   $('#chat-name').textContent = name;
   $('#chat-avatar').firstChild?.remove?.();
   const avatar = $('#chat-avatar');
   if (avatar) {
-    const letter = name.trim().charAt(0).toUpperCase() || 'B';
+    const letter = sandbox ? 'T' : name.trim().charAt(0).toUpperCase() || 'B';
     avatar.textContent = '';
     avatar.append(document.createTextNode(letter));
     const dot = document.createElement('span');
@@ -500,7 +506,9 @@ function renderHeader() {
     avatar.appendChild(dot);
   }
   let subtitle = 'Asistente virtual · en línea';
-  if (state.busy) subtitle = 'escribiendo…';
+  if (sandbox) {
+    subtitle = state.busy ? 'escribiendo…' : `Prueba libre · ${target?.label || 'pregunta'} · no se guarda`;
+  } else if (state.busy) subtitle = 'escribiendo…';
   else if (session) {
     subtitle = `${statusLabel(session.status)} · ${session.progress?.answered ?? 0} de ${session.progress?.total ?? 41}`;
     if (session.status === 'PAUSED') subtitle = 'Pausada · escribe para continuar';
@@ -514,13 +522,15 @@ function renderHeader() {
   const answered = session?.progress?.answered ?? 0;
   const total = session?.progress?.total ?? 41;
   $('#progress-label').textContent = `${answered} de ${total}`;
-  $('#progress-section').textContent = session?.sectionReview
-    ? `Revisión ${session.sectionReview.sectionId}`
-    : session?.currentSectionId
-      ? sectionName(session.currentSectionId)
-      : session
-        ? 'Sin iniciar'
-        : 'Sin iniciar';
+  $('#progress-section').textContent = sandbox
+    ? target?.label || 'Prueba libre'
+    : session?.sectionReview
+      ? `Revisión ${session.sectionReview.sectionId}`
+      : session?.currentSectionId
+        ? sectionName(session.currentSectionId)
+        : session
+          ? 'Sin iniciar'
+          : 'Sin iniciar';
   const fill = $('#progress-fill');
   if (fill) fill.style.width = `${Math.min(100, Math.round((answered / Math.max(1, total)) * 100))}%`;
   $('#progress-wrap').querySelector('.progress')?.setAttribute('aria-valuenow', String(answered));
@@ -624,6 +634,20 @@ function scrollChat(force = false) {
   if (force || nearBottom) body.scrollTop = body.scrollHeight;
 }
 
+function renderSandboxBar() {
+  const session = state.session;
+  const bar = $('#sandbox-bar');
+  if (!bar) return;
+  const test = !!session?.testMode;
+  bar.classList.toggle('hidden', !test);
+  if (!test) return;
+  const target = session.testTarget;
+  const kind = target?.kind === 'section' ? 'sección completa' : 'pregunta aislada';
+  $('#sandbox-target').textContent = `${target?.label || 'Pregunta'} · ${kind}`;
+  const repeat = $('#sandbox-repeat');
+  if (repeat) repeat.disabled = state.busy;
+}
+
 function renderComposer() {
   const session = state.session;
   const composer = $('#composer');
@@ -632,8 +656,9 @@ function renderComposer() {
   composer.classList.toggle('hidden', terminal);
   banner.classList.toggle('hidden', !session || (!terminal && session.status !== 'PAUSED' && session.status !== 'HANDOFF' && session.status !== 'ESCALATED'));
   if (session && terminal) {
-    banner.textContent =
-      session.status === 'COMPLETED'
+    banner.textContent = session.testMode
+      ? 'Prueba libre finalizada. Usa «Repetir» para intentarlo otra vez o «Cambiar» para elegir otra pregunta.'
+      : session.status === 'COMPLETED'
         ? 'Entrevista completada. El resumen se envió al correo indicado. Puedes revisar la consola del profesional.'
         : 'Esta conversación está cerrada. Crea una nueva entrevista para continuar.';
   } else if (session?.status === 'PAUSED') {
@@ -682,6 +707,13 @@ function closeSidebar() {
 /* Send messages                                                       */
 /* ------------------------------------------------------------------ */
 
+function sessionEndpoint(session = state.session, suffix = '') {
+  if (!session?.id) return '';
+  return session.testMode
+    ? `/api/sandbox/sessions/${encodeURIComponent(session.id)}${suffix}`
+    : `/api/sessions/${encodeURIComponent(session.id)}${suffix}`;
+}
+
 async function sendMessage({ text = '', buttonId = null, attachment = null, voice = null, waMessageId = null } = {}) {
   if (!state.session || !state.token) {
     toast('Crea o abre una conversación primero.', 'warn');
@@ -692,6 +724,7 @@ async function sendMessage({ text = '', buttonId = null, attachment = null, voic
     toast('La conversación está cerrada.', 'warn');
     return false;
   }
+  const sandbox = !!state.session.testMode;
   const clean = String(text || '').trim();
   if (!clean && !attachment && !voice) {
     toast('Escribe un mensaje o adjunta un archivo.', 'warn');
@@ -705,9 +738,10 @@ async function sendMessage({ text = '', buttonId = null, attachment = null, voic
   const restoreComposerFocus = document.activeElement === composerInput;
   state.busy = true;
   renderComposer();
+  renderSandboxBar();
   scrollChat(true);
   try {
-    const data = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/messages`, {
+    const data = await api(sessionEndpoint(state.session, '/messages'), {
       method: 'POST',
       body: { text: clean, buttonId, waMessageId: waMessageId || uid('wamid'), attachment, voice },
     });
@@ -716,6 +750,10 @@ async function sendMessage({ text = '', buttonId = null, attachment = null, voic
     if (data.duplicate) toast('Mensaje duplicado ignorado por idempotencia.', 'warn');
     if (data.erased) {
       toast('La conversación y sus datos fueron eliminados.', 'ok');
+      if (sandbox) {
+        await exitSandbox({ silent: true });
+        return true;
+      }
       removeChat(state.session.id);
       state.session = null;
       state.token = null;
@@ -724,7 +762,7 @@ async function sendMessage({ text = '', buttonId = null, attachment = null, voic
       return true;
     }
     render();
-    if (state.adminToken) refreshAdmin();
+    if (state.adminToken && !sandbox) refreshAdmin();
     return true;
   } catch (error) {
     if (error.status === 429) {
@@ -732,6 +770,9 @@ async function sendMessage({ text = '', buttonId = null, attachment = null, voic
       toast(`Demasiados mensajes. Espera ${seconds}s antes de reintentar.`, 'warn');
     } else if (error.status === 401) {
       toast('La sesión ya no es válida. Abre otra conversación.', 'error');
+    } else if (error.status === 404 && sandbox) {
+      toast('La prueba libre expiró.', 'warn');
+      await exitSandbox({ silent: true });
     } else if (error.status === 413) {
       toast('El mensaje o archivo es demasiado grande.', 'error');
     } else {
@@ -742,6 +783,7 @@ async function sendMessage({ text = '', buttonId = null, attachment = null, voic
     state.busy = false;
     renderComposer();
     if (state.session) {
+      renderSandboxBar();
       renderHeader();
       renderMessages();
     }
@@ -1555,6 +1597,145 @@ function openVoiceModal() {
   void close;
 }
 
+/* Free question testing: ephemeral sandbox sessions that jump directly to a
+   question or section and can be reset for another attempt. */
+
+async function startFreeTest({ itemId = null, sectionId = null } = {}) {
+  const previous = state.session;
+  const previousToken = state.token;
+  try {
+    if (previous && !previous.testMode) {
+      state.returnToChat = { id: previous.id, token: previousToken };
+    }
+    const data = await api('/api/sandbox/sessions', {
+      method: 'POST',
+      session: false,
+      body: itemId ? { itemId } : { sectionId },
+    });
+    if (previous?.testMode) {
+      // Replacing one sandbox with another: drop the old ephemeral session.
+      void api(sessionEndpoint(previous), { method: 'DELETE', token: previousToken }).catch(() => {});
+    }
+    state.session = data.session;
+    state.token = data.token;
+    hideAttachment();
+    const input = $('#message-input');
+    if (input) input.value = '';
+    // Deliberately not saved in localStorage nor added to the chat list.
+    render();
+    closeTestLab();
+    toast(`Prueba libre: ${data.session.testTarget?.label || 'pregunta'}`, 'ok');
+    return data.session;
+  } catch (error) {
+    toast(error.message, 'error');
+    return null;
+  }
+}
+
+async function repeatSandbox() {
+  if (!state.session?.testMode) {
+    toast('Abre una prueba libre primero.', 'warn');
+    return;
+  }
+  try {
+    const data = await api(sessionEndpoint(state.session, '/reset'), {
+      method: 'POST',
+      body: {},
+    });
+    state.session = data.session;
+    state.busy = false;
+    render();
+    toast('Pregunta repetida con el historial limpio.', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+async function exitSandbox({ silent = false } = {}) {
+  const session = state.session;
+  const returnTo = state.returnToChat;
+  state.returnToChat = null;
+  if (session?.testMode) {
+    try {
+      await api(sessionEndpoint(session), { method: 'DELETE', token: state.token });
+    } catch {
+      // The sandbox may already have expired or been erased.
+    }
+  }
+  state.session = null;
+  state.token = null;
+  hideAttachment();
+  const input = $('#message-input');
+  if (input) input.value = '';
+  if (returnTo?.id && returnTo?.token) {
+    await openChat(returnTo.id, returnTo.token, { silent: true });
+  } else {
+    render();
+  }
+  if (!silent) toast('Prueba libre cerrada.', 'ok');
+}
+
+async function openQuestionPicker() {
+  let sections = state.catalog?.sections || [];
+  if (!sections.length) {
+    try {
+      const data = await api('/api/sandbox/catalog', { session: false });
+      sections = data.sections || [];
+    } catch (error) {
+      toast(error.message, 'error');
+      return;
+    }
+  }
+  showModal({
+    title: 'Probar una pregunta',
+    wide: true,
+    body: `<p>Salta directo a una pregunta o al inicio de una sección. La prueba no se guarda como sesión real y puedes repetirla con otra respuesta cuando quieras.</p>
+      <label class="search lab-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg><input id="picker-filter" type="search" placeholder="Filtrar por pregunta, ID o sección" autocomplete="off" /></label>
+      <div class="picker-list" id="picker-list"></div>`,
+    onMount: ({ modal, close }) => {
+      const list = $('#picker-list', modal);
+      const filter = $('#picker-filter', modal);
+      const paint = () => {
+        const term = filter.value.trim().toLowerCase();
+        const html = sections
+          .map((section) => {
+            const items = section.items.filter(
+              (item) => !term || `${section.id} ${section.name} ${item.id} ${item.label}`.toLowerCase().includes(term),
+            );
+            if (!items.length) return '';
+            return `<section class="picker-section">
+              <div class="picker-head">
+                <strong>${esc(section.id)} · ${esc(section.name)}</strong>
+                <button class="ghost-btn small" type="button" data-section="${esc(section.id)}">Probar sección</button>
+              </div>
+              <div class="picker-items">
+                ${items
+                  .map(
+                    (item) =>
+                      `<button class="picker-item" type="button" data-item="${esc(item.id)}"><span class="picker-id">${esc(item.id)}</span><span>${esc(item.label)}</span></button>`,
+                  )
+                  .join('')}
+              </div>
+            </section>`;
+          })
+          .join('');
+        list.innerHTML = html || '<p class="muted">No hay preguntas que coincidan con el filtro.</p>';
+      };
+      paint();
+      filter.addEventListener('input', paint);
+      list.addEventListener('click', (event) => {
+        const item = event.target.closest('[data-item]');
+        const section = event.target.closest('[data-section]');
+        if (!item && !section) return;
+        close();
+        if (item) void startFreeTest({ itemId: item.dataset.item });
+        else void startFreeTest({ sectionId: section.dataset.section });
+      });
+      setTimeout(() => filter.focus(), 60);
+    },
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* Test lab                                                            */
 /* ------------------------------------------------------------------ */
@@ -1653,7 +1834,7 @@ async function runScenario(name) {
     } else if (name === 'spam') {
       const results = await Promise.all(
         Array.from({ length: 10 }, (_, i) =>
-          api(`/api/sessions/${encodeURIComponent(state.session.id)}/messages`, {
+          api(sessionEndpoint(state.session, '/messages'), {
             method: 'POST',
             body: { text: `Spam de prueba ${i + 1}`, waMessageId: uid('spam') },
           }).then(() => 'ok').catch((error) => error.status || 'err'),
@@ -1664,14 +1845,14 @@ async function runScenario(name) {
       await refreshCurrentSession();
     } else if (name === 'duplicate') {
       const waMessageId = uid('dup');
-      const first = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/messages`, { method: 'POST', body: { text: 'Mensaje duplicado de prueba', waMessageId } });
-      const second = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/messages`, { method: 'POST', body: { text: 'Mensaje duplicado de prueba', waMessageId } });
+      const first = await api(sessionEndpoint(state.session, '/messages'), { method: 'POST', body: { text: 'Mensaje duplicado de prueba', waMessageId } });
+      const second = await api(sessionEndpoint(state.session, '/messages'), { method: 'POST', body: { text: 'Mensaje duplicado de prueba', waMessageId } });
       state.session = second.session;
       render();
       labLog(`Duplicado: primero ${first.duplicate ? 'duplicado' : 'aceptado'}, segundo ${second.duplicate ? 'ignorado' : 'procesado'}.`, second.duplicate ? 'ok' : 'warn');
     } else if (name === 'oversize') {
       try {
-        await api(`/api/sessions/${encodeURIComponent(state.session.id)}/messages`, {
+        await api(sessionEndpoint(state.session, '/messages'), {
           method: 'POST',
           body: { text: 'x'.repeat(2500), waMessageId: uid('big') },
         });
@@ -1682,7 +1863,7 @@ async function runScenario(name) {
     } else if (name === 'attachment') {
       const fake = btoa('MZ' + '\u0000'.repeat(80) + 'fake executable');
       try {
-        await api(`/api/sessions/${encodeURIComponent(state.session.id)}/messages`, {
+        await api(sessionEndpoint(state.session, '/messages'), {
           method: 'POST',
           body: {
             text: 'Adjunto de prueba',
@@ -1808,6 +1989,26 @@ function bindLab() {
     $('#lab-log').innerHTML = '<p class="lab-log-empty">Ejecuta un escenario para ver el resultado.</p>';
     setLabStatus('Listo');
   });
+  $('#lab-test-question').addEventListener('click', () => {
+    void openQuestionPicker();
+  });
+  $('#lab-test-repeat').addEventListener('click', () => {
+    if (!state.session?.testMode) {
+      labLog('No hay una prueba libre activa; elige una pregunta.', 'warn');
+      void openQuestionPicker();
+      return;
+    }
+    void repeatSandbox();
+    labLog('Pregunta repetida desde el inicio, sin historial.', 'ok');
+  });
+  $('#lab-test-exit').addEventListener('click', () => {
+    if (!state.session?.testMode) {
+      labLog('No hay una prueba libre activa.', 'warn');
+      return;
+    }
+    void exitSandbox();
+    labLog('Prueba libre cerrada.', 'ok');
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1858,6 +2059,9 @@ function bindChat() {
     const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     applyTheme(next);
   });
+  $('#sandbox-repeat').addEventListener('click', () => void repeatSandbox());
+  $('#sandbox-change').addEventListener('click', () => void openQuestionPicker());
+  $('#sandbox-exit').addEventListener('click', () => void exitSandbox());
   $('#open-inspector').addEventListener('click', () => toggleInspector(true));
   $('#btn-inspector').addEventListener('click', () => toggleInspector(true));
   $('#close-inspector').addEventListener('click', closeInspector);

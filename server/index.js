@@ -12,6 +12,7 @@ import {
   adminPause,
   adminResume,
   adminTimeTravel,
+  beginTestSession,
   createSessionReply,
   handleInbound,
   inspectorSession,
@@ -20,6 +21,8 @@ import {
   sessionEraseOnReply,
 } from './engine.js';
 import { createSession, deleteSession, getMetrics, getSession, init as initStore, listSessions, readAudit, retentionReport, saveSession, verifyAudit } from './store.js';
+import { createTestSession, deleteTestSession, getTestSession } from './sandbox.js';
+import { SECTIONS, sectionItems } from './catalog.js';
 import { appendAudit, dailySpend, listOutbox, logSecurity, readOutboxFile } from './store.js';
 import { validateEmail, validatePhone, detectCrisis } from './validators.js';
 import { checkAdmin, checkInbound, getSessionState, llmQueueDepth, recordAdminFailure, recordAdminSuccess } from './ratelimit.js';
@@ -156,6 +159,20 @@ function requireSession(req, res, sessionId) {
   const session = getSession(sessionId);
   if (!session) {
     sendError(res, 404, 'not_found', 'Sesión no encontrada.');
+    return null;
+  }
+  if (!timingSafeEqual(token, session.clientToken)) {
+    sendError(res, 401, 'unauthorized', 'Token de sesión inválido.');
+    return null;
+  }
+  return session;
+}
+
+function requireTestSession(req, res, sessionId) {
+  const token = req.headers['x-session-token'] || '';
+  const session = getTestSession(sessionId);
+  if (!session) {
+    sendError(res, 404, 'not_found', 'Sesión de prueba no encontrada o expirada.');
     return null;
   }
   if (!timingSafeEqual(token, session.clientToken)) {
@@ -319,6 +336,104 @@ async function api(req, res, url) {
       }
       saveSession(outcome.session);
       return { session: publicSession(outcome.session, { reveal: true }), erased: false, duplicate: !!outcome.duplicate };
+    });
+    if (!result) return;
+    sendJson(res, 200, result);
+    return;
+  }
+
+  // Free question sandbox. Sessions live only in memory and are never saved.
+  if (method === 'GET' && pathname === '/api/sandbox/catalog') {
+    sendJson(res, 200, {
+      sections: SECTIONS.map((section) => ({
+        id: section.id,
+        name: section.name,
+        short: section.short,
+        items: sectionItems(section.id).map((item) => ({
+          id: item.id,
+          label: item.label,
+          type: item.type,
+          critical: !!item.critical,
+        })),
+      })),
+    });
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/sandbox/sessions') {
+    const body = await readJson(req);
+    const session = createTestSession({
+      itemId: typeof body.itemId === 'string' ? body.itemId : undefined,
+      sectionId: typeof body.sectionId === 'string' ? body.sectionId : undefined,
+      name: typeof body.name === 'string' ? body.name.slice(0, 120) : undefined,
+    });
+    if (!session) {
+      sendError(res, 400, 'invalid_target', 'La pregunta o sección solicitada no existe.');
+      return;
+    }
+    beginTestSession(session);
+    sendJson(res, 201, {
+      session: publicSession(session, { reveal: true }),
+      token: session.clientToken,
+    });
+    return;
+  }
+
+  const testSessionMatch = pathname.match(/^\/api\/sandbox\/sessions\/([^/]+)$/);
+  if (testSessionMatch && (method === 'GET' || method === 'DELETE')) {
+    const session = requireTestSession(req, res, testSessionMatch[1]);
+    if (!session) return;
+    if (method === 'DELETE') {
+      deleteTestSession(session.id);
+      sendJson(res, 200, { ok: true, deleted: true });
+      return;
+    }
+    sendJson(res, 200, { session: publicSession(session, { reveal: true }) });
+    return;
+  }
+
+  const testResetMatch = pathname.match(/^\/api\/sandbox\/sessions\/([^/]+)\/reset$/);
+  if (method === 'POST' && testResetMatch) {
+    const session = requireTestSession(req, res, testResetMatch[1]);
+    if (!session) return;
+    const body = await readJson(req);
+    beginTestSession(session, {
+      reset: true,
+      itemId: typeof body.itemId === 'string' ? body.itemId : undefined,
+      sectionId: typeof body.sectionId === 'string' ? body.sectionId : undefined,
+    });
+    sendJson(res, 200, { session: publicSession(session, { reveal: true }), reset: true });
+    return;
+  }
+
+  const testMessageMatch = pathname.match(/^\/api\/sandbox\/sessions\/([^/]+)\/messages$/);
+  if (method === 'POST' && testMessageMatch) {
+    const sessionId = testMessageMatch[1];
+    const body = await readJson(req);
+    const text = typeof body.text === 'string' ? body.text : '';
+    if (text.length > config.limits.maxInputChars) {
+      sendError(res, 413, 'input_too_large', `El mensaje supera ${config.limits.maxInputChars} caracteres.`);
+      return;
+    }
+    if (!requireTestSession(req, res, sessionId)) return;
+    const input = {
+      text,
+      buttonId: typeof body.buttonId === 'string' ? body.buttonId.slice(0, 40) : undefined,
+      waMessageId: typeof body.waMessageId === 'string' ? body.waMessageId.slice(0, 120) : undefined,
+      attachment: body.attachment || undefined,
+      voice: body.voice || undefined,
+    };
+    const result = await withLock(sessionId, async () => {
+      const session = getTestSession(sessionId);
+      if (!session) {
+        sendError(res, 404, 'not_found', 'Sesión de prueba no encontrada o expirada.');
+        return null;
+      }
+      const outcome = await handleInbound(session, input, { ip, actor: 'tester', origin: 'sandbox' });
+      const erased = outcome.erase || sessionEraseOnReply(outcome.session) || outcome.session.status === 'ERASED';
+      const snapshot = publicSession(outcome.session, { reveal: true });
+      if (erased) deleteTestSession(sessionId);
+      return { session: snapshot, erased, duplicate: !!outcome.duplicate };
     });
     if (!result) return;
     sendJson(res, 200, result);
