@@ -161,7 +161,7 @@ export const ITEMS = [
     subfields: [sub('mano_dominante', 'mano dominante', ['diestro', 'zurdo', 'derecha', 'izquierda', 'ambidiestro'])],
   },
 
-  // B. Motivo de la consulta (2)
+  // B. Motivo de la consulta (3)
   {
     id: 'M01',
     sectionId: 'B',
@@ -173,16 +173,44 @@ export const ITEMS = [
     subfields: [sub('motivo', 'motivo principal', ['consulta', 'motivo', 'porque', 'siento', 'problema'])],
   },
   {
+    id: 'M02',
+    sectionId: 'B',
+    label: 'Diagnóstico profesional',
+    prompt:
+      '¿Existe un diagnóstico emitido por algún profesional de la salud y deseas compartirlo? No necesitas enviar archivos: puedes responder “sí” o “no” y, si quieres, contarlo con tus palabras.',
+    type: 'short',
+    format: 'diagnosis_gate',
+    clarify: '¿Un profesional de la salud te ha emitido un diagnóstico? Responde “sí, deseo compartirlo” o “no”.',
+    example: 'Por ejemplo: “Sí, me diagnosticaron ansiedad” o “No, no existe diagnóstico”.',
+    subfields: [
+      sub('diagnostico_profesional', 'diagnóstico profesional', [
+        'diagnóstico',
+        'diagnostico',
+        'profesional',
+        'médic',
+        'medic',
+        'psicólog',
+        'psicolog',
+        'psiquiatra',
+        'compartir',
+        'existe',
+        'no',
+      ]),
+    ],
+  },
+  {
     id: 'M04',
     sectionId: 'B',
-    label: 'Fecha del diagnóstico',
+    label: 'Diagnóstico y fecha',
     prompt:
-      '¿Cuándo recibiste el diagnóstico? Si hay varios temas, indica la fecha y tu edad para cada uno.',
+      '¿Cuál fue el diagnóstico y cuándo lo recibiste? Si hay varios, indica el diagnóstico, la fecha y tu edad para cada uno.',
     type: 'date_text',
     format: 'date_text',
-    clarify: '¿Me das la fecha o el año del diagnóstico y la edad que tenías? Si no lo sabes, dime “no sé”.',
+    clarify: '¿Me das el diagnóstico, la fecha o el año en que lo recibiste y la edad que tenías? Si no lo sabes, dime “no sé”.',
     example: 'Por ejemplo: “Me diagnosticaron ansiedad en 2020, a los 28 años”.',
+    condition: { itemId: 'M02', skipWhen: ['no'] },
     subfields: [
+      sub('diagnostico', 'diagnóstico', ['diagnóstico', 'diagnostico', 'ansiedad', 'depresión', 'depresion', 'trastorno']),
       sub('fechas', 'fechas de diagnóstico', ['diagnóstico', 'diagnostico', 'año', 'fecha']),
       sub('edades', 'edades al diagnóstico', ['edad', 'años']),
     ],

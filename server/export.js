@@ -13,7 +13,9 @@ export function escapeHtml(value) {
 
 function displayValue(item, record, { reveal = false } = {}) {
   if (!record) return 'Sin responder';
-  if (record.status === 'SKIPPED') return 'No respondido';
+  if (record.status === 'SKIPPED') {
+    return record.meta?.conditionalSkip ? 'No aplica: no hay diagnóstico para compartir' : 'No respondido';
+  }
   const raw = record.displayValue ?? record.rawText ?? record.normalized ?? '';
   let value =
     typeof raw === 'object' && raw !== null

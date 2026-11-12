@@ -27,6 +27,7 @@ const answers = {
   D13: 'me gusta leer y caminar',
   D14: 'diestra',
   M01: 'Siento ansiedad y problemas para dormir desde hace meses',
+  M02: 'Sí, deseo compartirlo',
   M04: 'Me diagnosticaron ansiedad en 2020 a los 28 años',
   O01: 'Quiero entender mi ansiedad y dormir mejor',
   O02: 'Me apasiona el arte y la naturaleza',
@@ -82,7 +83,7 @@ test('new session greets and asks the 18+ gate', async () => {
   assert.equal(session.status, 'AGE_PENDING');
   assert.equal(session.messages.length, 3);
   assert.equal(session.messages.at(-1).meta.buttons[0].id, 'age_yes');
-  assert.equal(session.progress.total, 38);
+  assert.equal(session.progress.total, 39);
 });
 
 test('consent flow asks D01 and accepts a critical answer only after confirmation', async () => {
@@ -172,7 +173,46 @@ test('short sibling position and explicit negation count as complete answers', a
   assert.equal(session.currentItemId, 'Q18');
 });
 
-test('full 38-item interview completes without email', async () => {
+test('narrative mention of “de nuevo” is not mistaken for a repeat request', async () => {
+  const session = await consentedSession('Narrative Repeat Test');
+  session.currentSectionId = 'D';
+  session.currentItemId = 'Q09';
+  const before = session.messages.length;
+  await send(
+    session,
+    'Me contagiaron de Covid en pandemia, me dejó con una fatiga que a veces puedo sentir de nuevo, tuve que hacer terapia física y tengo que hacer ejercicio constante.',
+  );
+  assert.equal(session.items.Q09.status, 'ACCEPTED');
+  assert.equal(session.currentItemId, 'Q10');
+  const askedAgain = session.messages
+    .slice(before)
+    .some((message) => message.meta?.kind === 'question' && message.meta.itemId === 'Q09');
+  assert.equal(askedAgain, false);
+});
+
+test('diagnosis follow-up is conditional on the professional-diagnosis gate', async () => {
+  const withoutDiagnosis = await consentedSession('Sin Diagnóstico');
+  withoutDiagnosis.currentSectionId = 'B';
+  withoutDiagnosis.currentItemId = 'M02';
+  await send(withoutDiagnosis, 'No tengo');
+  assert.equal(withoutDiagnosis.items.M02.normalized, 'no');
+  assert.equal(withoutDiagnosis.items.M04.status, 'SKIPPED');
+  assert.equal(withoutDiagnosis.items.M04.meta.conditionalSkip, true);
+  assert.equal(withoutDiagnosis.sectionReview.sectionId, 'B');
+  assert.equal(withoutDiagnosis.currentItemId, null);
+  await send(withoutDiagnosis, 'Todo correcto', { buttonId: 'review_yes' });
+  assert.equal(withoutDiagnosis.currentItemId, 'O01');
+
+  const withDiagnosis = await consentedSession('Con Diagnóstico');
+  withDiagnosis.currentSectionId = 'B';
+  withDiagnosis.currentItemId = 'M02';
+  await send(withDiagnosis, 'Sí, deseo compartirlo');
+  assert.equal(withDiagnosis.items.M02.normalized, 'sí');
+  assert.equal(withDiagnosis.currentItemId, 'M04');
+  assert.equal(withDiagnosis.items.M04, undefined);
+});
+
+test('full 39-item interview completes without email', async () => {
   const session = await consentedSession('Full Flow');
   let guard = 0;
   while (session.status !== 'COMPLETED' && guard < 320) {
@@ -203,7 +243,7 @@ test('full 38-item interview completes without email', async () => {
     await send(session, answers[session.currentItemId] || 'No tengo información');
   }
   assert.equal(session.status, 'COMPLETED', `ended in ${session.status} after ${guard} turns`);
-  assert.equal(session.progress.answered, 38);
+  assert.equal(session.progress.answered, 39);
   assert.ok(session.progress.partial >= 0);
   assert.ok(session.summary?.generatedAt);
   assert.equal(store.listSessions().length >= 1, true);

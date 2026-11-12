@@ -30,7 +30,7 @@ test('health endpoint reports the local deterministic mode', async () => {
   const { response, body } = await json('/api/health');
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
-  assert.equal(body.totalItems, 38);
+  assert.equal(body.totalItems, 39);
   assert.equal(body.llm.mode, 'off');
 });
 

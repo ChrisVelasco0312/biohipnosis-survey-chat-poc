@@ -7,12 +7,15 @@ en la interfaz, **L** = laboratorio de pruebas integrado.
 
 | Requisito | Caso | Tipo | Evidencia / esperado |
 |---|---|---|---|
-| 38 ítems, 8 secciones | Catálogo completo | A | `tests/unit/validators.test.js`: 38 y A10/B2/C3/D11/E8/F1/G2/H1 |
+| 39 ítems, 8 secciones | Catálogo completo | A | `tests/unit/validators.test.js`: 39 y A10/B3/C3/D11/E8/F1/G2/H1 |
 | Una pregunta por mensaje | Flujo completo | A | `tests/integration/engine.test.js` |
+| Repetición explícita | “de nuevo” dentro de una respuesta narrativa | A | Se acepta la respuesta; solo se repite ante pedido explícito |
+| Falso fuera de tema | Respuesta válida con relevancia baja del modelo | A | Si las reglas deterministas cubren los campos, no se descarta |
 | Texto exacto del catálogo | Motor añade pregunta | A/M | La pregunta no la escribe el LLM |
 | 18+ | Edad 17 | A | Sesión bloqueada, sin datos, mensaje de menor |
 | Consentimiento | Aceptar / rechazar | A | Sin aceptar no hay D01; rechazo borra |
 | D01–D05 críticos | Confirmación explícita | A/M | `pendingConfirmation` y botones |
+| Diagnóstico condicional | M02 “no” / “sí” | A | “No”: M04 queda `SKIPPED` y no se pregunta; “Sí”: se pregunta M04 |
 | Rúbrica | Pesos .30/.25/.20/.15/.10 | A | `weightedScore` |
 | Aceptar ≥ .75 | Respuesta completa | A | Estado `ACCEPTED` |
 | Aclarar .45–.74 | Respuesta vaga | A/M | Contador de intentos |
@@ -29,7 +32,7 @@ en la interfaz, **L** = laboratorio de pruebas integrado.
 | Adjuntos | PDF/imagen; `.exe` | A/M/L | Acepta válido, rechaza mágic bytes |
 | Voz simulada | Confianza < .6 | A/M/L | Pide confirmación de transcripción |
 | Exportación | JSON/HTML/PDF | A/M | Descarga y print |
-| Inspector 38 | Cuadrícula | M | 38 celdas, estados |
+| Inspector 39 | Cuadrícula | M | 39 celdas, estados |
 | PII | Revelar / ocultar | M | Enmascarada por defecto, auditada |
 | Tema claro/oscuro | Toggle | M | Persistencia local |
 | Responsive | 1440/860/520 px | M | Sidebar/inspector overlay |
@@ -123,6 +126,6 @@ POC_LLM=off npm start   # para pruebas manuales sin red
 ```
 
 Para el flujo completo automatizado, `tests/integration/engine.test.js` recorre
-los 38 ítems con un mapa de respuestas realistas y confirma el estado
+los 39 ítems con un mapa de respuestas realistas y confirma el estado
 `COMPLETED`. El laboratorio permite repetir los escenarios hostiles a mano sin
 escribir código.

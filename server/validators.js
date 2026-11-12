@@ -182,9 +182,26 @@ export function isErasure(text) {
   );
 }
 
+/**
+ * Decide si el veredicto del modelo sobre un mensaje fuera de tema debe
+ * aplicarse. Una respuesta que cubre determinísticamente los campos pedidos
+ * no se descarta solo porque el modelo la puntuó como poco relevante.
+ */
+export function shouldReplyOffTopic({ offTopic, relevance, textLength, missing = [], coverage = 0 }) {
+  if (!offTopic || Number(relevance) >= 0.35 || Number(textLength) <= 10) return false;
+  return !(missing.length === 0 && Number(coverage) >= 0.7);
+}
+
 export function isRepeat(text) {
-  return /\b(repite|repetir|no entendi|no te entendi|cual era la pregunta|de nuevo|otra vez|no me quedo claro)\b/.test(
-    normalizeForMatch(text),
+  const n = normalizeForMatch(text).replace(/[.!¡¿?]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // Solo peticiones explícitas y breves. Una respuesta narrativa puede decir
+  // “sentir de nuevo” o “me mudé otra vez” sin pedir que se repita la pregunta.
+  if (!n || n.split(/\s+/).length > 12) return false;
+  if (/\b(repite|repetir|repiteme|repitemela|repetirmela|repetirla|repites|me lo repites|me la repites|puedes repetir|puede repetir|podrias repetir)\b/.test(n)) {
+    return true;
+  }
+  return /\b(cual (era|es) la pregunta|que pregunta era|la pregunta de nuevo|de nuevo la pregunta|otra vez la pregunta)\b/.test(
+    n,
   );
 }
 
@@ -448,6 +465,31 @@ export function validateYesNo(text) {
     return { ok: true, normalized: 'no' };
   }
   return { ok: false, issue: 'Responde sí o no, por favor.' };
+}
+
+/**
+ * Pregunta condicional sobre un diagnóstico emitido por un profesional de la
+ * salud. Acepta respuestas naturales (“no existe diagnóstico”, “deseo
+ * compartirlo”, etc.) y normaliza a “sí” o “no” para decidir si se pregunta
+ * por el diagnóstico y su fecha.
+ */
+export function validateDiagnosisGate(text) {
+  const n = normalizeForMatch(text).replace(/[.!¡¿?]/g, ' ').replace(/\s+/g, ' ').trim();
+  const explicitNo =
+    /\bno (deseo|quiero|prefiero|puedo) (compartir|compartirlo|contarlo)|prefiero no compartirlo|no lo comparto|no (existe|hay|tengo|cuento|me han|me dieron)|ningun[oa]s?|sin diagnostico\b/.test(
+      n,
+    );
+  if (explicitNo) return { ok: true, normalized: 'no' };
+  if (/^(no|nunca|jamas|jamás|negativo|para nada|en absoluto)\b/.test(n)) {
+    return { ok: true, normalized: 'no' };
+  }
+  const affirmative =
+    /^(si|sí|claro|por supuesto|afirmativo|correcto|asi es|así es)\b/.test(n) ||
+    /\b(existe|tengo|cuento con|me diagnosticaron|me diagnostico|fui diagnosticad|deseo compartirlo|quiero compartirlo|lo comparto)\b/.test(
+      n,
+    );
+  if (affirmative) return { ok: true, normalized: 'sí' };
+  return { ok: false, issue: 'Responde “sí, deseo compartirlo” o “no”, por favor.' };
 }
 
 /**
@@ -802,6 +844,14 @@ export function validateField(item, text, extracted = {}) {
       } else normalized = r.normalized;
       break;
     }
+    case 'diagnosis_gate': {
+      const r = validateDiagnosisGate(value);
+      if (!r.ok) {
+        hardFail = true;
+        issues.push(r.issue);
+      } else normalized = r.normalized;
+      break;
+    }
     case 'children': {
       const r = validateChildren(value);
       if (!r.ok) {
@@ -881,6 +931,7 @@ export function validateField(item, text, extracted = {}) {
       'children',
       'option',
       'yesno',
+      'diagnosis_gate',
       'handedness',
       'short',
       'personal_data',
@@ -902,7 +953,18 @@ export function heuristicScores(item, text, extracted = {}) {
     coverageFromExtracted(extracted, item.subfields),
     heuristicCoverage(text, item.subfields),
   );
-  const isChoice = ['yesno', 'option', 'number', 'email', 'phone', 'age', 'age_autonomy', 'handedness', 'short'].includes(item.format || item.type);
+  const isChoice = [
+    'yesno',
+    'diagnosis_gate',
+    'option',
+    'number',
+    'email',
+    'phone',
+    'age',
+    'age_autonomy',
+    'handedness',
+    'short',
+  ].includes(item.format || item.type);
   // Un mensaje con palabras obtiene 0.8 base; el galimatías lo baja de golpe y
   // las respuestas sin ninguna relación con la pregunta, en forma de gradiente.
   let relevance = words.length > 0 ? 0.8 : 0;

@@ -39,6 +39,7 @@ import {
   normalizeForMatch,
   sanitizeAck,
   screenOutbound,
+  shouldReplyOffTopic,
   validateField,
   weightedScore,
 } from './validators.js';
@@ -494,6 +495,32 @@ function sendFullSummary(session) {
   event(session, 'summary.shown', { chunks: chunks.length });
 }
 
+function conditionBlocks(session, item) {
+  const condition = item?.condition;
+  if (!condition?.itemId) return false;
+  const record = session.items?.[condition.itemId];
+  if (!record) return false;
+  const answer = normalizeForMatch(record.normalized ?? record.displayValue ?? record.rawText ?? '');
+  return (condition.skipWhen || []).some((value) => answer === normalizeForMatch(value));
+}
+
+function skipConditionalItem(session, item) {
+  commitAnswer(session, item, {
+    status: 'SKIPPED',
+    rawText: 'No aplica',
+    displayValue: 'No aplica: no hay diagnóstico para compartir',
+    score: 0,
+    coverage: 0,
+    issues: [],
+    source: 'condition',
+    meta: { conditionalSkip: true, conditionItemId: item.condition?.itemId || null },
+  });
+  event(session, 'question.skipped_by_condition', {
+    itemId: item.id,
+    conditionItemId: item.condition?.itemId || null,
+  });
+}
+
 function advance(session, item) {
   if (session.correctionReturn) {
     const destination = session.correctionReturn;
@@ -502,20 +529,29 @@ function advance(session, item) {
     return sendFullSummary(session);
   }
   if (!item) return;
-  if (item.id === 'C01') {
-    completeSession(session);
-    return;
+  let cursor = item;
+  while (cursor) {
+    if (cursor.id === 'C01') {
+      completeSession(session);
+      return;
+    }
+    const section = getSection(cursor.sectionId);
+    if (!section) return;
+    const items = sectionItems(section.id);
+    const lastInSection = items[items.length - 1].id === cursor.id;
+    if (lastInSection) {
+      if (section.id === 'H') return completeSession(session);
+      return sendSectionReview(session, section.id);
+    }
+    const next = getItem(nextItemId(cursor.id));
+    if (!next) return;
+    if (conditionBlocks(session, next)) {
+      skipConditionalItem(session, next);
+      cursor = next;
+      continue;
+    }
+    return askQuestion(session, next);
   }
-  const section = getSection(item.sectionId);
-  if (!section) return;
-  const items = sectionItems(section.id);
-  const lastInSection = items[items.length - 1].id === item.id;
-  if (lastInSection) {
-    if (section.id === 'H') return completeSession(session);
-    return sendSectionReview(session, section.id);
-  }
-  const next = nextItemId(item.id);
-  if (next) askQuestion(session, getItem(next));
 }
 
 function startConversation(session) {
@@ -1024,6 +1060,16 @@ async function processAnswer(session, text, input, ctx) {
     return;
   }
 
+  if (input.attachment && ['M02', 'M04'].includes(item.id)) {
+    reply(session, 'No necesitas enviar archivos. Cuéntamelo por texto, con tus palabras.', {
+      kind: 'attachment_not_needed',
+      itemId: item.id,
+    });
+    event(session, 'attachment.not_needed', { itemId: item.id });
+    askQuestion(session, item, { clarify: true, clarifyText: item.clarify });
+    return;
+  }
+
   if (input.attachment) {
     const validation = validateAttachment(input.attachment);
     if (!validation.ok) {
@@ -1051,7 +1097,7 @@ async function processAnswer(session, text, input, ctx) {
   }
   if (item.id === 'Q21') return processFamilyTree(session, text, input, ctx);
 
-  if (isSkip(text) && !item.critical && item.id !== 'D07') {
+  if (isSkip(text) && !item.critical && !['D07', 'M02'].includes(item.id)) {
     return markSkipped(session, item, text, input.voice ? 'voice' : 'text');
   }
 
@@ -1146,6 +1192,7 @@ async function processAnswer(session, text, input, ctx) {
       'children',
       'option',
       'yesno',
+      'diagnosis_gate',
       'handedness',
       'short',
       'email',
@@ -1156,6 +1203,8 @@ async function processAnswer(session, text, input, ctx) {
     ]);
     if (choiceFormats.has(item.format || item.type)) coverage = 1;
   }
+  const missing = missingSubfields(item, text, analysis.extracted, validation.normalized);
+  const hasDeterministicCoverage = missing.length === 0 && coverage >= 0.7;
   const heuristic = heuristicScores(item, text, analysis.extracted);
   const allZero = ['relevance', 'completeness', 'specificity', 'coherence'].every(
     (k) => Number(analysis.validation?.[k] || 0) === 0,
@@ -1168,15 +1217,32 @@ async function processAnswer(session, text, input, ctx) {
     coherence: Number(modelScores.coherence ?? heuristic.coherence),
     safety: Number(modelScores.safety ?? 1),
   };
+  // Si las reglas deterministas ya cubren todos los campos, una puntuación
+  // baja del modelo no debe convertir una respuesta válida en aclaración.
+  if (hasDeterministicCoverage) {
+    for (const key of ['relevance', 'completeness', 'specificity', 'coherence']) {
+      merged[key] = Math.max(merged[key], heuristic[key]);
+    }
+  }
   let score = weightedScore(merged);
   const issues = [...validation.issues];
   if (coverage < 0.7 && (item.subfields?.length || 0) > 1) issues.push('Faltan partes de la respuesta.');
   if (validation.hardFail) score = Math.min(score, 0.44);
   else if (issues.length && coverage < 0.7) score = Math.min(score, 0.62);
 
-  if (analysis.off_topic && merged.relevance < 0.35 && text.length > 10) {
+  // El modelo puede marcar como fuera de tema una respuesta válida y breve
+  // (por ejemplo, «Me cuidaron mis abuelos y mi madre»). Si las reglas
+  // deterministas ya cubren los campos requeridos, no aplicamos ese veredicto.
+  if (
+    shouldReplyOffTopic({
+      offTopic: analysis.off_topic,
+      relevance: merged.relevance,
+      textLength: text.length,
+      missing,
+      coverage,
+    })
+  ) {
     reply(session, offTopicReply());
-    const missing = missingSubfields(item, text, analysis.extracted, validation.normalized);
     askQuestion(session, item, { clarify: true, clarifyText: clarifyPrompt(item, { missing }) });
     event(session, 'answer.off_topic', { itemId: item.id });
     return;
@@ -1242,7 +1308,6 @@ async function processAnswer(session, text, input, ctx) {
     };
     updateProgress(session);
     session.counters.clarifications += 1;
-    const missing = missingSubfields(item, text, analysis.extracted, validation.normalized);
     const clarifyText = looksNonsense
       ? nonsenseClarifyReply(item, missing)
       : clarifyPrompt(item, {
@@ -1255,7 +1320,6 @@ async function processAnswer(session, text, input, ctx) {
     return;
   }
 
-  const missing = missingSubfields(item, text, analysis.extracted, validation.normalized);
   commitAnswer(session, item, { ...data, status: 'PARTIAL' });
   if (looksNonsense) {
     reply(session, nonsensePartialReply(missing));

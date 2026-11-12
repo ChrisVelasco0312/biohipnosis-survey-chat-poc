@@ -49,11 +49,11 @@ gratuito esté disponible.
 
 ## 4. Resultados observados
 
-- Flujo completo de 38 ítems hasta `COMPLETED` en 73 turnos con heurística.
-- 38/38 respondidos; 3 parciales (D11, D12, Q22) por respuestas concisas.
+- Flujo completo de 39 ítems hasta `COMPLETED` en 74 turnos con heurística.
+- 39/39 registrados (M04 queda como “no aplica” si no hay diagnóstico); 3 parciales (D11, D12, Q22) por respuestas concisas.
 - Resumen final confirmado y correo simulado generado.
 - Suite de seguridad 22/22.
-- `npm test`: 31/31.
+- `npm test`: 43/43.
 - Interfaz probada con Chrome headless a 1440×900: creación, edad,
   consentimiento, D01, confirmación, inspector, respuestas, seguridad, test lab,
   inyección, crisis y suite.

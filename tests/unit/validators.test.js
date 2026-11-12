@@ -3,14 +3,25 @@ import assert from 'node:assert/strict';
 
 const v = await import('../../server/validators.js');
 
-test('catalog has 38 items in 8 sections', async () => {
+test('catalog has 39 items in 8 sections', async () => {
   const catalog = await import('../../server/catalog.js');
-  assert.equal(catalog.ITEMS.length, 38);
+  assert.equal(catalog.ITEMS.length, 39);
   assert.equal(catalog.SECTIONS.length, 8);
   const counts = Object.fromEntries(
     catalog.SECTIONS.map((section) => [section.id, catalog.sectionItems(section.id).length]),
   );
-  assert.deepEqual(counts, { A: 10, B: 2, C: 3, D: 11, E: 8, F: 1, G: 2, H: 1 });
+  assert.deepEqual(counts, { A: 10, B: 3, C: 3, D: 11, E: 8, F: 1, G: 2, H: 1 });
+});
+
+test('diagnosis gate accepts natural yes/no answers', () => {
+  const item = { id: 'M02', format: 'diagnosis_gate', type: 'short', label: 'Diagnóstico profesional' };
+  assert.equal(v.validateField(item, 'No existe diagnóstico alguno').normalized, 'no');
+  assert.equal(v.validateField(item, 'No hay fecha porque no existe diagnóstico').normalized, 'no');
+  assert.equal(v.validateField(item, 'No deseo compartirlo').normalized, 'no');
+  assert.equal(v.validateField(item, 'Sí, pero prefiero no compartirlo').normalized, 'no');
+  assert.equal(v.validateField(item, 'Sí, me diagnosticaron ansiedad').normalized, 'sí');
+  assert.equal(v.validateField(item, 'Sí, deseo compartirlo').normalized, 'sí');
+  assert.equal(v.validateField(item, 'tal vez').ok, false);
 });
 
 test('personal_data validation extracts name, age, date and place', () => {
@@ -192,6 +203,26 @@ test('pause detection ignores narrative mentions and keeps explicit requests', (
   assert.equal(v.isConfusion('no entiendo'), true);
   assert.equal(v.isConfusion('¿me lo explicas con un ejemplo?'), true);
   assert.equal(v.isConfusion('Soy la mayor'), false);
+});
+
+test('repeat detection ignores narrative mentions and keeps explicit requests', () => {
+  assert.equal(v.isRepeat('¿Puedes repetir la pregunta?'), true);
+  assert.equal(v.isRepeat('Disculpa, ¿me la repites? Se me borró'), true);
+  assert.equal(v.isRepeat('¿Cuál era la pregunta?'), true);
+  assert.equal(
+    v.isRepeat(
+      'Me contagiaron de Covid en pandemia, me dejó con una fatiga que a veces puedo sentir de nuevo, tuve que hacer terapia física y tengo que hacer ejercicio constante.',
+    ),
+    false,
+  );
+  assert.equal(v.isRepeat('Me mudé otra vez a Bogotá y cambié de trabajo'), false);
+});
+
+test('off-topic verdict does not discard a deterministically complete answer', () => {
+  const base = { offTopic: true, relevance: 0.2, textLength: 34, coverage: 1 };
+  assert.equal(v.shouldReplyOffTopic({ ...base, missing: [] }), false);
+  assert.equal(v.shouldReplyOffTopic({ ...base, missing: ['personas cuidadoras'] }), true);
+  assert.equal(v.shouldReplyOffTopic({ ...base, offTopic: false, missing: [] }), false);
 });
 
 test('compound answers accept optional parts and clear negations', async () => {

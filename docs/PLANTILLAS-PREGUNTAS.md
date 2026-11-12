@@ -82,11 +82,21 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Aclaración:** «Gracias. ¿Cuál es el motivo más importante de tu consulta y cómo lo describirías con tus palabras?»
 
-### 12. Fecha del diagnóstico
+### 12. Diagnóstico profesional
 
-**Pregunta:** «¿Cuándo recibiste el diagnóstico? Si hay varios temas, indica la fecha y tu edad para cada uno.»
+**Pregunta:** «¿Existe un diagnóstico emitido por algún profesional de la salud y deseas compartirlo? No necesitas enviar archivos: puedes responder “sí” o “no” y, si quieres, contarlo con tus palabras.»
 
-**Aclaración:** «Gracias. ¿Me das la fecha o el año del diagnóstico y la edad que tenías? Si no lo sabes, dime “no sé”.»
+**Aclaración:** «Gracias. ¿Un profesional de la salud te ha emitido un diagnóstico? Responde “sí, deseo compartirlo” o “no”.»
+
+**Ejemplo:** Por ejemplo: “Sí, me diagnosticaron ansiedad” o “No, no existe diagnóstico”.
+
+> Si la respuesta es “no”, no se pregunta por el diagnóstico ni por su fecha. Solo se recibe la respuesta de la persona; no se solicitan ni se comparten archivos.
+
+### 13. Diagnóstico y fecha
+
+**Pregunta:** «¿Cuál fue el diagnóstico y cuándo lo recibiste? Si hay varios, indica el diagnóstico, la fecha y tu edad para cada uno.»
+
+**Aclaración:** «Gracias. ¿Me das el diagnóstico, la fecha o el año en que lo recibiste y la edad que tenías? Si no lo sabes, dime “no sé”.»
 
 **Ejemplo:** Por ejemplo: “Me diagnosticaron ansiedad en 2020, a los 28 años”.
 
@@ -94,19 +104,19 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Introducción:** «Sigamos con lo que buscas y con lo que te mueve.»
 
-### 13. Objetivo de la consulta
+### 14. Objetivo de la consulta
 
 **Pregunta:** «¿Cuál es el objetivo de tu consulta? Cuéntame con tus palabras qué te gustaría lograr y por qué.»
 
 **Aclaración:** «Gracias. ¿Qué te gustaría conseguir con esta consulta?»
 
-### 14. Pasiones
+### 15. Pasiones
 
 **Pregunta:** «¿Qué es lo que más te apasiona? Descríbelo con un poco de detalle.»
 
 **Aclaración:** «Gracias. ¿Qué actividades o temas te apasionan de verdad?»
 
-### 15. Lo que detestas
+### 16. Lo que detestas
 
 **Pregunta:** «¿Qué es lo que más detestas? Descríbelo con un poco de detalle.»
 
@@ -116,37 +126,37 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Introducción:** «Pasemos a tu origen y tu infancia. Responde a tu ritmo. Puedes decir “no sé” o “prefiero no responder” sin problema.»
 
-### 16. Finalidad en la vida
+### 17. Finalidad en la vida
 
 **Pregunta:** «¿Cuál sientes que es tu finalidad en la vida? Cuéntamela con tus propias palabras y algo de detalle.»
 
 **Aclaración:** «Gracias. ¿Qué sentido o finalidad le encuentras a tu vida hoy?»
 
-### 17. Hijo deseado
+### 18. Hijo deseado
 
 **Pregunta:** «¿Fuiste un hijo deseado? Puedes responder “sí”, “no” o “no sé”; si quieres, cuéntame un poco más.»
 
 **Aclaración:** «Gracias. ¿Sabes si tu llegada fue deseada o esperada por tus padres? Puedes responder “sí”, “no” o “no sé”.»
 
-### 18. Sexo deseado
+### 19. Sexo deseado
 
 **Pregunta:** «¿Te querían del sexo que eres? Puedes responder “sí”, “no” o “no sé”.»
 
 **Aclaración:** «Gracias. ¿Sabes si tus padres esperaban o querían un hijo de tu sexo? Puedes responder “sí”, “no” o “no sé”.»
 
-### 19. Origen del nombre
+### 20. Origen del nombre
 
 **Pregunta:** «¿Por qué o por quién eligieron tu nombre?»
 
 **Aclaración:** «Gracias. ¿Sabes quién eligió tu nombre o por qué te lo pusieron?»
 
-### 20. Fecha de nacimiento
+### 21. Fecha de nacimiento
 
 **Pregunta:** «¿Tu fecha de nacimiento tiene relación con otra fecha importante de tu familia? Puedes responder “sí” o “no”; si es sí, dime cuál.»
 
 **Aclaración:** «Gracias. ¿Tu nacimiento coincidió con alguna fecha importante para tu familia? Puedes responder “sí” o “no”.»
 
-### 21. Embarazo y parto
+### 22. Embarazo y parto
 
 **Pregunta:** «¿Cómo fueron los 9 meses previos a tu embarazo, el embarazo y tu parto? Incluye cómo era la situación emocional y económica de tus padres.»
 
@@ -154,31 +164,31 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Ejemplo:** Por ejemplo: “Mi madre estaba feliz, había dificultad económica y el parto fue normal”.
 
-### 22. Lactancia
+### 23. Lactancia
 
 **Pregunta:** «¿Te amamantaron y durante cuánto tiempo?»
 
 **Aclaración:** «Gracias. ¿Te amamantaron y durante cuánto tiempo? Si no lo sabes, dime “no sé”.»
 
-### 23. Infancia
+### 24. Infancia
 
 **Pregunta:** «¿Ocurrió algún acontecimiento importante en tu infancia? Si es así, cuéntame cuál o cuáles; si no, escribe “ninguno”.»
 
 **Aclaración:** «Gracias. ¿Qué acontecimientos importantes recuerdas de tu infancia, aunque no parezcan graves? Si no hubo, escribe “ninguno”.»
 
-### 24. Salud
+### 25. Salud
 
 **Pregunta:** «¿Cómo es y ha sido tu salud? Cuéntame con un poco de detalle, por ejemplo si has tenido enfermedades o tratamientos.»
 
 **Aclaración:** «Gracias. ¿Cómo describirías tu salud a lo largo de la vida?»
 
-### 25. Cuidados en la infancia
+### 26. Cuidados en la infancia
 
 **Pregunta:** «¿De qué personas recibiste cuidados, afecto y educación en tu infancia?»
 
 **Aclaración:** «Gracias. ¿Quiénes te cuidaron, te dieron afecto y te educaron en la infancia?»
 
-### 26. Mascotas
+### 27. Mascotas
 
 **Pregunta:** «¿Qué mascotas hubo en casa?»
 
@@ -188,7 +198,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Introducción:** «Ahora exploraremos tu familia y las relaciones que la han marcado.»
 
-### 27. Lugar entre hermanos
+### 28. Lugar entre hermanos
 
 **Pregunta:** «¿Qué lugar ocupas entre tus hermanos, incluyendo abortos y fallecidos?»
 
@@ -196,7 +206,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Ejemplo:** Por ejemplo: “Soy la mayor; no hubo abortos ni hermanos fallecidos”.
 
-### 28. Relación con hermanos
+### 29. Relación con hermanos
 
 **Pregunta:** «¿Cómo era la relación con tus hermanos mientras convivían? ¿Y cómo es hoy?»
 
@@ -204,13 +214,13 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Ejemplo:** Por ejemplo: “Convivíamos bien y hoy la relación es cercana”.
 
-### 29. Atención entre hermanos
+### 30. Atención entre hermanos
 
 **Pregunta:** «¿Algún hermano acaparó más la atención que los demás? ¿Por qué?»
 
 **Aclaración:** «Gracias. ¿Algún hermano recibió más atención? ¿A qué crees que se debió?»
 
-### 30. Economía del hogar
+### 31. Economía del hogar
 
 **Pregunta:** «¿Qué circunstancias económicas hubo en tu hogar? ¿Hubo carencias o derroches? ¿Se amaba o se despreciaba el dinero?»
 
@@ -218,7 +228,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Ejemplo:** Por ejemplo: “Había carencias, no derroches; se valoraba el dinero”.
 
-### 31. Parejas anteriores de los padres
+### 32. Parejas anteriores de los padres
 
 **Pregunta:** «¿Tu padre o tu madre tuvieron parejas anteriores? ¿Hubo hijos de otras parejas?»
 
@@ -226,13 +236,13 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Ejemplo:** Por ejemplo: “Mi padre tuvo una pareja anterior y un hijo; mi madre no”.
 
-### 32. Familia actual
+### 33. Familia actual
 
 **Pregunta:** «¿Quiénes forman parte de la familia actual?»
 
 **Aclaración:** «Gracias. ¿Quiénes componen tu familia hoy?»
 
-### 33. Sucesos graves en la familia
+### 34. Sucesos graves en la familia
 
 **Pregunta:** «¿Hubo muertes tempranas, abortos, hijos que nacieron muertos, mujeres que murieron en el parto, accidentes, hechos graves, suicidios, enfermedades, sucesos de guerra o peleas por herencias en la familia?»
 
@@ -240,7 +250,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Ejemplo:** Por ejemplo: “Ninguno; no hubo muertes, abortos, accidentes, suicidios ni guerras”.
 
-### 34. Temas secretos
+### 35. Temas secretos
 
 **Pregunta:** «¿Existen en la familia temas secretos, temas de los que no se puede hablar? Puedes responder “sí” o “no”; si es sí, cuéntame cuáles.»
 
@@ -250,7 +260,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Introducción:** «Vamos a armar tu árbol familiar por partes. Puedes decir “no tengo información” en cualquier momento.»
 
-### 35. Árbol genealógico
+### 36. Árbol genealógico
 
 **Paso 1 — Padres:** «Empecemos por tus padres. ¿Me das sus nombres, fechas de nacimiento y muerte, y causas de muerte si las conoces?»
 
@@ -266,7 +276,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Introducción:** «Para cerrar la historia, hablemos de los sucesos significativos de tu vida.»
 
-### 36. Sucesos significativos
+### 37. Sucesos significativos
 
 **Pregunta:** «Menciona los sucesos significativos de tu vida e incluye la edad que tenías en cada uno.»
 
@@ -274,7 +284,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Ejemplo:** Por ejemplo: “A los 20 años me mudé sola y a los 28 empecé terapia”.
 
-### 37. Edad de autonomía económica
+### 38. Edad de autonomía económica
 
 **Pregunta:** «¿A qué edad te independizaste económicamente de tus padres?»
 
@@ -284,7 +294,7 @@ Entrevista inicial. Las preguntas se presentan en el orden en que se formulan, a
 
 **Introducción:** «Ya casi terminamos. Voy a mostrarte un resumen para que lo confirmes o lo corrijas.»
 
-### 38. Confirmación del resumen
+### 39. Confirmación del resumen
 
 **Antes de preguntar:** se muestra el resumen completo de la entrevista.
 

@@ -1,6 +1,6 @@
 # Biohipnosis Sistémica — entrevista inicial (POC)
 
-Prueba de concepto **local** de la entrevista inicial de 38 ítems descrita en
+Prueba de concepto **local** de la entrevista inicial de 39 ítems descrita en
 `docs/04_system_specification_en.md`, con una interfaz de chat inspirada en
 WhatsApp Web, una consola para el profesional y un laboratorio de pruebas de
 seguridad.
@@ -12,7 +12,7 @@ seguridad.
 
 ## 1. Qué incluye
 
-- Chat de entrevista con **38 ítems en 8 secciones** (A–H), una pregunta por
+- Chat de entrevista con **39 ítems en 8 secciones** (A–H), una pregunta por
   mensaje y texto de pregunta controlado por el motor determinista.
 - Verificación de **18+** y **consentimiento informado** antes de guardar
   respuestas.
@@ -30,7 +30,7 @@ seguridad.
   heurística.
 - Persistencia **cifrada en reposo** (AES-256-GCM), índice sin PII, auditoría con
   cadena de hashes y máscara de PII.
-- Consola del profesional: sesión, cuadrícula de 38 ítems, eventos, seguridad,
+- Consola del profesional: sesión, cuadrícula de 39 ítems, eventos, seguridad,
   costos y exportación JSON/HTML/imprimible.
 - Laboratorio de pruebas con escenarios de abuso, errores, spam, duplicados,
   adjuntos maliciosos, crisis, suite de seguridad y auditoría.
@@ -113,7 +113,7 @@ Navegador (HTML/CSS/JS, sin build)
 server/index.js  ── auth de sesión/admin, rate limit, estáticos, headers
   │
   ├─ engine.js       máquina de estados determinista (dueña del flujo)
-  ├─ catalog.js      38 ítems, secciones, subcampos, criterios
+  ├─ catalog.js      39 ítems, secciones, subcampos, criterios
   ├─ validators.js   formatos, rúbrica, crisis, inyección, PII, sanitización
   ├─ safety.js       respuestas fijas y pantallas de salida
   ├─ llm.js          OpenCode restringido + fallback heurístico
@@ -184,19 +184,19 @@ Ver [`docs/SECURITY.md`](docs/SECURITY.md) para el modelo de amenaza y
 ## 7. Pruebas
 
 ```bash
-npm test          # 31 pruebas unitarias + integración
+npm test          # 43 pruebas unitarias + integración
 npm run security  # suite determinista 22/22
 npm run smoke     # smoke test HTTP (servidor debe estar arriba)
 ```
 
-La prueba de integración recorre los **38 ítems** hasta `COMPLETED`, confirma
+La prueba de integración recorre los **39 ítems** hasta `COMPLETED`, confirma
 campos críticos, revisa secciones, acepta el resumen y verifica el correo
 simulado. Usa `POC_LLM=off` para no depender de la red.
 
 Resultado de referencia en este entorno:
 
 ```
-npm test          -> 31 pass, 0 fail
+npm test          -> 43 pass, 0 fail
 npm run security  -> 1 pass (22/22 checks)
 ```
 
