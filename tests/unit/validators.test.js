@@ -64,6 +64,20 @@ test('respuesta compuesta sin palabras clave se acepta con el parser estructurad
   });
 });
 
+test('la edad se deriva de la fecha de nacimiento cuando no se menciona', () => {
+  const item = { id: 'D01', format: 'personal_data', type: 'text', label: 'Datos iniciales' };
+  // Caso real: nombre + fecha y lugar de nacimiento, sin edad.
+  const r = v.validateField(item, 'Farid Garcez, Naci en Popayán el 25 de Enero del 1992');
+  assert.equal(r.ok, true, r.issues.join(' | '));
+  assert.equal(r.normalized.edad, v.ageFromBirthDate('1992-01-25'));
+  assert.equal(r.normalized.nombre_completo, 'Farid Garcez');
+  assert.equal(r.normalized.lugar_nacimiento, 'Popayán');
+  // Menor de edad derivado → bloqueado.
+  const minor = v.validateField(item, 'Joven Pérez, nací el 5 de mayo de 2012 en Cali');
+  assert.equal(minor.ok, false);
+  assert.equal(minor.minor, true);
+});
+
 test('email validation rejects markup and malformed addresses', () => {
   assert.equal(v.validateEmail('<script>@x.com').ok, false);
   assert.equal(v.validateEmail('ana@example.com').ok, true);

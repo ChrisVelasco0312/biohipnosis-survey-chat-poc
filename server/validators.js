@@ -599,6 +599,18 @@ export function extractPlace(text) {
   return /[a-záéíóúüñ]/i.test(place) ? place : '';
 }
 
+/** Edad derivada de una fecha de nacimiento completa (AAAA-MM-DD). */
+export function ageFromBirthDate(iso, now = new Date()) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [year, month, day] = iso.split('-').map(Number);
+  const today = new Date(now);
+  let age = today.getUTCFullYear() - year;
+  const monthNow = today.getUTCMonth() + 1;
+  const dayNow = today.getUTCDate();
+  if (monthNow < month || (monthNow === month && dayNow < day)) age -= 1;
+  return age >= 0 && age < 130 ? age : null;
+}
+
 /** Edad en años dentro de una respuesta compuesta: “tengo 34 años”, “34 años”, “edad 34”. */
 export function extractAgeFromText(text) {
   const n = normalizeForMatch(text);
@@ -619,6 +631,9 @@ export function extractNameCandidate(text) {
 export function extractBirthPlace(text, excludeName = '') {
   const excluded = normalizeForMatch(excludeName);
   let value = cleanText(text)
+    .replace(/\b\d{1,2}\s+de\s+[a-záéíóúüñ]+\s+(?:de\s+|del\s+)?\d{4}\b/gi, ' ')
+    .replace(/\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/g, ' ')
+    .replace(/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b/g, ' ')
     .replace(/\b\d{1,3}\s*(?:años|anos)\b/gi, ' ')
     .replace(/\btengo\s+\d{1,3}\b/gi, ' ')
     .replace(/\b(?:19|20)\d{2}\b/g, ' ');
@@ -725,9 +740,15 @@ export function validateField(item, text, extracted = {}) {
         if (Number.isFinite(parsed) && parsed > 0) ageCandidate = parsed;
       }
       if (ageCandidate == null) ageCandidate = extractAgeFromText(value);
-      const rAge = ageCandidate != null ? validateAge(String(ageCandidate)) : { ok: false, issue: 'Falta tu edad en años.' };
       const extractedDate = extracted?.fecha_nacimiento ? parseDate(String(extracted.fecha_nacimiento)) : null;
       const rDate = extractedDate?.ok ? extractedDate : parseDate(value);
+      // Con la fecha de nacimiento completa, la edad se calcula: no se vuelve
+      // a preguntar solo porque el consultante no la haya mencionado.
+      if (ageCandidate == null && rDate.ok && !rDate.partial) {
+        const derived = ageFromBirthDate(rDate.iso);
+        if (derived != null) ageCandidate = derived;
+      }
+      const rAge = ageCandidate != null ? validateAge(String(ageCandidate)) : { ok: false, issue: 'Falta tu edad en años.' };
       const extractedPlace = String(extracted?.lugar_nacimiento || '').trim();
       const place = extractedPlace || extractBirthPlace(value, nameOk ? nameCandidate : '');
       if (!nameOk) {
@@ -736,6 +757,7 @@ export function validateField(item, text, extracted = {}) {
       }
       if (!rAge.ok) {
         hardFail = true;
+        minor = minor || !!rAge.minor;
         issues.push(rAge.issue);
       }
       if (!rDate.ok) {
