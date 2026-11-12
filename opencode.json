@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "interviewer": {
+      "description": "Stateless, tool-less analyst for the Biohipnosis interview POC. Returns strict JSON only.",
+      "mode": "primary",
+      "model": "opencode/glm-5.3-flash-free",
+      "temperature": 0,
+      "steps": 1,
+      "prompt": "{file:./prompts/interviewer.txt}",
+      "permission": {
+        "*": "deny"
+      },
+      "tools": {
+        "*": false
+      }
+    }
+  }
+}

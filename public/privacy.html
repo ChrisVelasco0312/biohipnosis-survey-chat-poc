@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Política de privacidad · Biohipnosis POC</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%2300a884'/%3E%3Ctext x='32' y='45' font-family='Arial,sans-serif' font-size='38' font-weight='700' text-anchor='middle' fill='white'%3EB%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .legal-page { max-width: 780px; margin: 0 auto; padding: 42px 22px 70px; }
+      .legal-page h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
+      .legal-page .legal-sub { margin: 0 0 26px; color: var(--muted); }
+      .legal-card { padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow-sm); }
+      .legal-page h2 { margin: 26px 0 8px; font-size: 16px; }
+      .legal-page h3 { margin: 18px 0 6px; font-size: 13px; }
+      .legal-page p, .legal-page li { color: var(--text-soft); font-size: 13px; line-height: 1.65; }
+      .legal-page ul { padding-left: 20px; }
+      .legal-warning { margin: 18px 0; padding: 13px 14px; border-left: 3px solid var(--warn); border-radius: 7px; background: color-mix(in srgb, var(--warn) 8%, transparent); color: var(--text-soft); font-size: 12px; line-height: 1.55; }
+      .legal-page .back { display: inline-flex; margin-bottom: 20px; }
+      .legal-page code { font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <main class="legal-page">
+      <a class="text-btn back" href="/">← Volver a la entrevista</a>
+      <div class="legal-card">
+        <h1>Política de privacidad</h1>
+        <p class="legal-sub">Prueba de concepto local · versión 1.0 · vigente para esta demostración</p>
+
+        <div class="legal-warning">
+          <strong>Esto es una POC, no un servicio clínico en producción.</strong> No uses datos reales de salud. La
+          entrevista no reemplaza atención médica, diagnóstico ni tratamiento. Ante una emergencia, llama al 123.
+        </div>
+
+        <h2>1. Quién trata tus datos</h2>
+        <p>
+          En esta demostración, el responsable es el equipo que ejecuta la POC en su equipo local. No hay un servidor
+          remoto de Biohipnosis: la aplicación escucha solo en <code>127.0.0.1</code> y guarda los datos en el disco de
+          quien la ejecuta.
+        </p>
+
+        <h2>2. Qué datos se recogen</h2>
+        <ul>
+          <li>Datos de contacto: nombre, celular y correo electrónico.</li>
+          <li>Datos personales y familiares: edad, fecha y lugar de nacimiento, estado civil, hijos, ocupación, estudios.</li>
+          <li>Datos de salud: motivo de consulta, malestar, diagnósticos, cirugías, accidentes, salud familiar y sucesos significativos.</li>
+          <li>Contenido de mensajes, notas de voz simuladas y archivos que decidas adjuntar.</li>
+          <li>Registros técnicos: fecha, estado de la entrevista, eventos de seguridad y costos sombra del modelo.</li>
+        </ul>
+
+        <h2>3. Para qué se usan</h2>
+        <p>
+          Para preparar una consulta de Biohipnosis Sistémica: ordenar tu historia, identificar temas relevantes y
+          entregar un resumen al profesional. No se usan para publicidad, perfilamiento comercial ni decisiones
+          automatizadas con efectos legales.
+        </p>
+
+        <h2>4. Base legal y consentimiento</h2>
+        <p>
+          El tratamiento se basa en tu consentimiento informado, que otorgas después de confirmar que tienes 18 años o
+          más. Puedes retirarlo en cualquier momento escribiendo “no quiero continuar” o “borra mis datos”. La
+          entrevista no se inicia si no aceptas.
+        </p>
+
+        <h2>5. Modelo de lenguaje y transferencia</h2>
+        <p>
+          Para analizar tus respuestas, el texto se envía a un modelo gratuito ejecutado mediante OpenCode en tu propio
+          equipo. El proveedor del modelo puede procesar el texto fuera del equipo según sus términos. En esta POC se
+          usan modelos gratuitos y el sistema recurre a reglas locales si el proveedor falla o alcanza su límite. No
+          envíes datos reales de salud en esta demostración.
+        </p>
+
+        <h2>6. Conservación</h2>
+        <ul>
+          <li>Audio: hasta 30 días (en esta POC no se envía audio al servidor; solo la transcripción simulada).</li>
+          <li>Transcripciones y respuestas: hasta 24 meses.</li>
+          <li>Mensajes: hasta 12 meses.</li>
+          <li>Registros técnicos: 90 días; auditoría: 5 años; consentimientos: 5 años.</li>
+        </ul>
+        <p>Los plazos son configurables y se documentan en <code>docs/SECURITY.md</code>.</p>
+
+        <h2>7. Tus derechos</h2>
+        <p>
+          Puedes pedir acceso, corrección, actualización, eliminación y revocatoria del consentimiento. En la POC:
+          escribe “borra mis datos” en el chat o usa la consola del profesional. La eliminación borra el archivo cifrado
+          y los adjuntos; queda un registro mínimo de auditoría sin el contenido.
+        </p>
+
+        <h2>8. Seguridad</h2>
+        <ul>
+          <li>Cifrado AES-256-GCM de cada sesión en reposo; clave local con permisos 0600.</li>
+          <li>Acceso del profesional con token y bloqueo tras intentos fallidos.</li>
+          <li>Límites de tasa, detección de spam, idempotencia y validación de adjuntos.</li>
+          <li>Bloqueo determinista de inyección de prompt, solicitudes de diagnóstico y acceso a otras sesiones.</li>
+          <li>Auditoría con cadena de hashes y enmascaramiento de PII en la vista por defecto.</li>
+        </ul>
+        <p>
+          Ningún sistema es completamente seguro. En producción se requieren HTTPS, gestión de secretos, respaldo
+          cifrado, control de acceso por roles y un acuerdo de tratamiento de datos con el proveedor del modelo.
+        </p>
+
+        <h2>9. Crisis y límites</h2>
+        <p>
+          Si el sistema detecta riesgo actual, pausa la entrevista, muestra recursos (123 emergencias, 106 apoyo
+          emocional, 155 violencia, 141 menores) y alerta al profesional. No sustituye una evaluación clínica.
+        </p>
+
+        <h2>10. Contacto</h2>
+        <p>
+          Para esta POC, el contacto es el profesional que ejecuta la demostración. En producción se debe publicar un
+          correo de privacidad y un canal de atención de derechos.
+        </p>
+
+        <p class="legal-sub" style="margin-top: 26px">Versión de consentimiento: <code>poc-consent-1.0</code></p>
+      </div>
+    </main>
+  </body>
+</html>

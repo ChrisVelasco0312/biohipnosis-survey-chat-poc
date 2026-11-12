@@ -1,0 +1,10 @@
+node_modules/
+data/
+.env
+*.log
+.DS_Store
+test-results/
+playwright-report/
+e2e/.data/
+e2e/artifacts/
+.opencode/

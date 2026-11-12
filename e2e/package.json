@@ -1,0 +1,21 @@
+{
+  "name": "biohipnosis-e2e-visual",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pruebas e2e visuales (headed) de la POC de entrevista inicial.",
+  "scripts": {
+    "test": "node scripts/reset-data.mjs && playwright test",
+    "test:headless": "node scripts/reset-data.mjs && E2E_HEADLESS=1 playwright test",
+    "test:entrevista": "node scripts/reset-data.mjs && playwright test tests/01-entrevista.spec.ts",
+    "test:consola": "node scripts/reset-data.mjs && playwright test tests/02-consola-profesional.spec.ts",
+    "test:laboratorio": "node scripts/reset-data.mjs && playwright test tests/03-laboratorio.spec.ts",
+    "test:borde": "node scripts/reset-data.mjs && playwright test tests/04-casos-borde.spec.ts",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^24.10.0",
+    "typescript": "~5.9.2"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "biohipnosis-survey-chat-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-only proof of concept of the Biohipnosis systemic initial-interview WhatsApp chatbot.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test tests/unit/*.test.js tests/integration/*.test.js",
+    "security": "node --test tests/security/*.test.js",
+    "smoke": "node tests/smoke.mjs"
+  }
+}
