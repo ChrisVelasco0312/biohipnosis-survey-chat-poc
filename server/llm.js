@@ -246,6 +246,7 @@ function buildPrompt({ item, subfields, text, session, recent }) {
     etiqueta: item.label,
     pregunta: item.prompt,
     tipo: item.type,
+    formato: item.format || item.type,
     subcampos: subfields.map((f) => ({ clave: f.key, etiqueta: f.label, opcional: !!f.optional })),
     respuestas_previas: Object.fromEntries(
       Object.entries(session.items || {})
@@ -255,18 +256,43 @@ function buildPrompt({ item, subfields, text, session, recent }) {
     ),
     turnos_recientes: recent,
   };
+  if (item.example) context.ejemplo = item.example;
+  const extractionHint = EXTRACTION_HINTS[item.format || item.type];
   return [
     'Analiza el mensaje del usuario para el ítem actual.',
     'Devuelve únicamente el objeto JSON del esquema. No expliques, no saludes, no preguntes.',
+    'Tu tarea principal es EXTRAER los datos: en "extracted" devuelve los valores que dijo el usuario, ya normalizados por subcampo; no los resumas ni los parafrasees.',
+    extractionHint ? `NORMALIZACIÓN: ${extractionHint}` : '',
     `CONTEXTO_JSON: ${JSON.stringify(context)}`,
     start,
     safeText,
     end,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
-function shadowCost(model, tokensIn, tokensOut) {
-  const price = config.modelPrices[model] || config.modelPrices['opencode/glm-5.3-flash-free'];
+/**
+ * Indica, por formato, cómo debe normalizar el modelo los valores de
+ * "extracted". La extracción semántica del modelo es la fuente primaria; el
+ * parser determinista solo cubre los campos que faltaron.
+ */
+const EXTRACTION_HINTS = {
+  personal_data:
+    'Devuelve los cuatro subcampos con valores normalizados: nombre_completo como texto literal completo (nombres y apellidos), edad como número simple de años, fecha_nacimiento como AAAA-MM-DD y lugar_nacimiento como ciudad y región sin conectores ("nacido en", "en").',
+  date_place:
+    'Devuelve fecha_nacimiento como AAAA-MM-DD y lugar_nacimiento como ciudad y región sin conectores.',
+  date_text:
+    'Devuelve las fechas como AAAA-MM-DD cuando sea posible y las edades como números simples.',
+  children:
+    'Devuelve cantidad como número y edades como lista de números simples.',
+  handedness:
+    'Devuelve solo el valor normalizado: "diestro", "zurdo" o "ambidiestro".',
+  yesno:
+    'Devuelve solo "sí" o "no".',
+  short:
+    'Una respuesta breve tipo "sí", "no" o "no sé" es completa para este ítem: devuélvela tal cual y coverage 1.0.',
+};
+
+function shadowCost(model, tokensIn, tokensOut) {  const price = config.modelPrices[model] || config.modelPrices['opencode/glm-5.3-flash-free'];
   return Number(((tokensIn / 1_000_000) * price.input + (tokensOut / 1_000_000) * price.output).toFixed(6));
 }
 

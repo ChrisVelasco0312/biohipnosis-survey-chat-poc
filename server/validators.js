@@ -616,19 +616,24 @@ export function extractNameCandidate(text) {
 }
 
 /** Lugar de nacimiento dentro de una respuesta compuesta. */
-export function extractBirthPlace(text) {
+export function extractBirthPlace(text, excludeName = '') {
+  const excluded = normalizeForMatch(excludeName);
   let value = cleanText(text)
     .replace(/\b\d{1,3}\s*(?:años|anos)\b/gi, ' ')
     .replace(/\btengo\s+\d{1,3}\b/gi, ' ')
     .replace(/\b(?:19|20)\d{2}\b/g, ' ');
+  const candidates = [];
   const enMatch = value.match(/\ben\s+(.+)$/i);
-  if (enMatch) return stripPlaceFillers(enMatch[1]);
-  const chunks = value.split(/[,;:.]+/).map((chunk) => stripPlaceFillers(chunk)).filter(Boolean);
-  for (let i = chunks.length - 1; i >= 0; i -= 1) {
-    const chunk = chunks[i];
-    if (/[a-záéíóúüñ]/i.test(chunk) && !/\b(llamo|soy|nombre|tengo|nací|naci|anos|años|edad)\b/i.test(chunk)) {
-      return chunk;
-    }
+  if (enMatch) candidates.push(enMatch[1]);
+  const chunks = value.split(/[,;:.]+/);
+  for (let i = chunks.length - 1; i >= 0; i -= 1) candidates.push(chunks[i]);
+  for (const candidate of candidates) {
+    const place = stripPlaceFillers(candidate);
+    if (!/[a-záéíóúüñ]/i.test(place)) continue;
+    if (/\d/.test(place)) continue;
+    if (/\b(llamo|soy|nombre|tengo|nací|naci|anos|años|edad)\b/i.test(place)) continue;
+    if (excluded && normalizeForMatch(place).includes(excluded)) continue;
+    return place;
   }
   return '';
 }
@@ -713,12 +718,18 @@ export function validateField(item, text, extracted = {}) {
       const nameCandidate = String(extracted?.nombre_completo || '').trim() || extractNameCandidate(value);
       const rName = validateName(nameCandidate);
       const nameOk = rName.ok && nameCandidate.trim().split(/\s+/).filter(Boolean).length >= 2;
-      const ageCandidate = extracted?.edad != null && Number.isFinite(Number(extracted.edad)) && Number(extracted.edad) > 0
-        ? Number(extracted.edad)
-        : extractAgeFromText(value);
+      const rawAge = extracted?.edad;
+      let ageCandidate = null;
+      if (rawAge != null) {
+        const parsed = Number(String(rawAge).replace(/[^\d]/g, ''));
+        if (Number.isFinite(parsed) && parsed > 0) ageCandidate = parsed;
+      }
+      if (ageCandidate == null) ageCandidate = extractAgeFromText(value);
       const rAge = ageCandidate != null ? validateAge(String(ageCandidate)) : { ok: false, issue: 'Falta tu edad en años.' };
-      const rDate = parseDate(value);
-      const place = String(extracted?.lugar_nacimiento || '').trim() || extractBirthPlace(value);
+      const extractedDate = extracted?.fecha_nacimiento ? parseDate(String(extracted.fecha_nacimiento)) : null;
+      const rDate = extractedDate?.ok ? extractedDate : parseDate(value);
+      const extractedPlace = String(extracted?.lugar_nacimiento || '').trim();
+      const place = extractedPlace || extractBirthPlace(value, nameOk ? nameCandidate : '');
       if (!nameOk) {
         hardFail = true;
         issues.push('Falta el nombre completo. ¿Cuál es tu nombre y tus apellidos?');
@@ -850,6 +861,7 @@ export function validateField(item, text, extracted = {}) {
       'yesno',
       'handedness',
       'short',
+      'personal_data',
       'email',
       'phone',
       'age',

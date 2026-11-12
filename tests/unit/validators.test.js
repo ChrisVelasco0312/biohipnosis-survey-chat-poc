@@ -35,6 +35,35 @@ test('personal_data validation extracts name, age, date and place', () => {
   assert.equal(v.validateField(handed, 'no sé').ok, false);
 });
 
+test('respuesta compuesta sin palabras clave se acepta con el parser estructurado', () => {
+  // Caso real de regresión: sin "llamo/nací/lugar", el parser estructurado
+  // debe bastar; las keywords nunca pueden vetar la respuesta.
+  const item = { id: 'D01', format: 'personal_data', type: 'text', label: 'Datos iniciales' };
+  const r = v.validateField(item, 'Tommy Half, 45 años, 3 de enero de 1994, Popayán Colombia');
+  assert.equal(r.ok, true, r.issues.join(' | '));
+  assert.deepEqual(r.normalized, {
+    nombre_completo: 'Tommy Half',
+    edad: 45,
+    fecha_nacimiento: '1994-01-03',
+    lugar_nacimiento: 'Popayán Colombia',
+  });
+  const alt = v.validateField(item, 'Ana María Restrepo Gómez, tengo 28 años, nací el 12 de julio de 1998 en Medellín');
+  assert.equal(alt.normalized.lugar_nacimiento, 'Medellín');
+  // La extracción del LLM tiene prioridad y el nombre no se confunde con el lugar.
+  const llm = v.validateField(item, 'María Peña, 30 años, 5 de mayo de 1996, Cali', {
+    nombre_completo: 'María Fernanda Peña',
+    edad: '30 años',
+    fecha_nacimiento: '1996-05-05',
+    lugar_nacimiento: 'Cali, Valle del Cauca',
+  });
+  assert.deepEqual(llm.normalized, {
+    nombre_completo: 'María Fernanda Peña',
+    edad: 30,
+    fecha_nacimiento: '1996-05-05',
+    lugar_nacimiento: 'Cali, Valle del Cauca',
+  });
+});
+
 test('email validation rejects markup and malformed addresses', () => {
   assert.equal(v.validateEmail('<script>@x.com').ok, false);
   assert.equal(v.validateEmail('ana@example.com').ok, true);
