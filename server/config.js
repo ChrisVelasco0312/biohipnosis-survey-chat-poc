@@ -28,8 +28,8 @@ export const config = {
 
   llm: {
     mode: process.env.POC_LLM || 'opencode',
-    model: process.env.POC_MODEL || 'opencode/glm-5.3-flash-free',
-    fallbackModel: process.env.POC_FALLBACK_MODEL || 'opencode/deepseek-v4.1-flash-free',
+    model: process.env.POC_MODEL || 'opencode-go/glm-5.3-flash',
+    fallbackModel: process.env.POC_FALLBACK_MODEL || 'opencode-go/deepseek-v4.1-flash',
     timeoutMs: int(process.env.POC_LLM_TIMEOUT_MS, 9000),
     retryTimeoutMs: int(process.env.POC_LLM_RETRY_TIMEOUT_MS, 7000),
     maxOutputBytes: 16 * 1024,
@@ -87,6 +87,8 @@ export const config = {
   // Shadow prices in USD per 1M tokens. The models are free in this POC; these
   // rates are used only to demonstrate per-session cost controls and alerting.
   modelPrices: {
+    'opencode-go/glm-5.3-flash': { input: 0.15, output: 0.5 },
+    'opencode-go/deepseek-v4.1-flash': { input: 0.15, output: 0.6 },
     'opencode/glm-5.3-flash-free': { input: 0.05, output: 0.15 },
     'opencode/deepseek-v4.1-flash-free': { input: 0.15, output: 0.6 },
     'opencode/mimo-v2.6-flash-free': { input: 0.08, output: 0.24 },

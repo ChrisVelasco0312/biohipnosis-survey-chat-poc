@@ -4,7 +4,7 @@
     "interviewer": {
       "description": "Stateless, tool-less analyst for the Biohipnosis interview POC. Returns strict JSON only.",
       "mode": "primary",
-      "model": "opencode/glm-5.3-flash-free",
+      "model": "opencode-go/glm-5.3-flash",
       "temperature": 0,
       "steps": 1,
       "prompt": "{file:./prompts/interviewer.txt}",
