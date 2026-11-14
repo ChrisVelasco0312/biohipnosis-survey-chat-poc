@@ -143,11 +143,40 @@ export function isPause(text) {
   return false;
 }
 
+// Pedidos explícitos de aclaración. Se evalúan como frases completas para no
+// confundir una respuesta narrativa (“no entiendo por qué mi padre se fue”)
+// con una petición de explicación.
+const CONFUSION_PATTERNS = [
+  /\bno me queda claro\b/,
+  /\bno me quedo claro\b/,
+  /\bno se de que\b/,
+  /\bno se a que te refieres\b/,
+  /\bno se a que se refiere\b/,
+  /\ba que te refieres\b/,
+  /\ba que se refiere\b/,
+  /\bexplicame\b/,
+  /\bexplicame (mejor|eso|la pregunta|de nuevo)\b/,
+  /\bme (lo |la )?explicas\b/,
+  /\b(me )?puedes explicar(me|lo|la)?\b/,
+  /\b(me )?podrias explicar(me|lo|la)?\b/,
+  /\bmas claro\b/,
+  /\b(da|dame|pon|ponme) un ejemplo\b/,
+  /\bque significa( la pregunta| la consigna| esto| eso)?\b/,
+  /\bque quiere decir( la pregunta| la consigna| esto| eso)?\b/,
+  /\bcomo asi\b/,
+  /\bno se (que|como) responder\b/,
+];
+
 export function isConfusion(text) {
-  const n = normalizeForMatch(text).replace(/[.!¡¿?]/g, '').trim();
-  return /\b(no entiendo|no entendi|no comprendo|no me queda claro|no me quedo claro|no se de que|no se a que te refieres|a que te refieres|explicame|explicame mejor|me lo explicas|puedes explicar|mas claro|da un ejemplo|dame un ejemplo|pon un ejemplo)\b/.test(
-    n,
-  );
+  const n = normalizeForMatch(text).replace(/[.!¡¿?]/g, '').replace(/\s+/g, ' ').trim();
+  if (!n) return false;
+  if (CONFUSION_PATTERNS.some((re) => re.test(n))) return true;
+  // “No entiendo / no comprendo” cuenta como petición cuando es breve o cuando
+  // menciona la pregunta; en una narración larga suele ser parte de la respuesta.
+  if (/\b(no (lo )?entiendo|no entendi|no comprendo)\b/.test(n)) {
+    return n.split(/\s+/).length <= 14 || /\b(pregunta|consigna|explica|ejemplo|significa|refiere)\b/.test(n);
+  }
+  return false;
 }
 
 export function isNegativeComplete(text) {

@@ -202,7 +202,18 @@ test('pause detection ignores narrative mentions and keeps explicit requests', (
   );
   assert.equal(v.isConfusion('no entiendo'), true);
   assert.equal(v.isConfusion('¿me lo explicas con un ejemplo?'), true);
+  assert.equal(v.isConfusion('No entiendo esta pregunta, me puedes explicar?'), true);
+  assert.equal(v.isConfusion('¿puedes explicarme?'), true);
+  assert.equal(v.isConfusion('me explicas'), true);
+  assert.equal(v.isConfusion('no lo entiendo'), true);
+  assert.equal(v.isConfusion('¿qué significa la pregunta?'), true);
+  assert.equal(v.isConfusion('¿a qué se refiere?'), true);
+  assert.equal(v.isConfusion('no sé qué responder'), true);
   assert.equal(v.isConfusion('Soy la mayor'), false);
+  assert.equal(
+    v.isConfusion('No entiendo por qué mi padre se fue de casa cuando yo era niño y nunca volvió a llamar.'),
+    false,
+  );
 });
 
 test('repeat detection ignores narrative mentions and keeps explicit requests', () => {

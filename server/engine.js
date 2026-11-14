@@ -296,7 +296,11 @@ function sectionIntro(session, sectionId) {
   return true;
 }
 
-function askQuestion(session, item, { clarify = false, clarifyText = null, issues = [], step = null, buttons = null } = {}) {
+function askQuestion(
+  session,
+  item,
+  { clarify = false, clarifyText = null, lead = 'Gracias.', issues = [], step = null, buttons = null } = {},
+) {
   if (!item) return;
   if (!clarify) {
     session.currentSectionId = item.sectionId;
@@ -305,7 +309,7 @@ function askQuestion(session, item, { clarify = false, clarifyText = null, issue
   }
   const promptText = step && item.q21Steps ? step.prompt : item.prompt;
   const text = clarify
-    ? `Gracias. ${clarifyText || item.clarify || '¿Me lo explicas un poco más?'}`
+    ? `${lead} ${clarifyText || item.clarify || '¿Me lo explicas un poco más?'}`
     : promptText;
   const meta = {
     kind: 'question',
@@ -370,8 +374,22 @@ function currentClarifyItem(session, current) {
     label: current.step?.label || current.item.label,
     clarify: current.item.clarify,
     example: current.item.example,
+    explain: current.step?.explain || current.item.explain,
     subfields,
   };
+}
+
+/**
+ * Explicación real para cuando la persona dice que no entiende la pregunta.
+ * No reutiliza la aclaración si esta solo reformula el enunciado: prioriza
+ * `explain`, luego un ejemplo y, como último recurso, la aclaración.
+ */
+function explanationPrompt(item) {
+  if (!item) return '¿Me lo explicas con un poco más de detalle?';
+  if (item.explain) return item.explain;
+  if (item.example) return `Esta pregunta busca entender «${item.label}». ${item.example}`;
+  if (item.clarify) return `Esta pregunta busca entender «${item.label}». ${item.clarify}`;
+  return 'Con tus propias palabras, cuéntame lo que sepas sobre esta pregunta.';
 }
 
 function clarifyPrompt(item, { missing = [], issue = '', normalized = null } = {}) {
@@ -1683,11 +1701,11 @@ export async function handleInbound(session, input = {}, ctx = {}) {
     const current = currentPrompt(session);
     if (current) {
       const helpItem = currentClarifyItem(session, current);
-      const missing = missingSubfields(helpItem, '', {});
       askQuestion(session, current.item, {
         step: current.step,
         clarify: true,
-        clarifyText: clarifyPrompt(helpItem, { missing }),
+        lead: 'Claro.',
+        clarifyText: explanationPrompt(helpItem),
       });
       event(session, 'question.explained', { itemId: current.item.id });
       saveSession(session);

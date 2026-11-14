@@ -173,6 +173,22 @@ test('short sibling position and explicit negation count as complete answers', a
   assert.equal(session.currentItemId, 'Q18');
 });
 
+test('an explanation request answers with a real explanation and does not consume the question', async () => {
+  const session = await consentedSession('Explanation Test');
+  session.currentSectionId = 'E';
+  session.currentItemId = 'Q18';
+  const before = session.progress.answered;
+  await send(session, 'No entiendo esta pregunta, me puedes explicar?');
+  assert.equal(session.currentItemId, 'Q18');
+  assert.equal(session.progress.answered, before);
+  const last = session.messages.at(-1);
+  assert.equal(last.meta.kind, 'question');
+  assert.equal(last.meta.itemId, 'Q18');
+  assert.match(last.text, /Claro\./);
+  assert.match(last.text, /pareja|hijos|padres|hermanos/i);
+  assert.ok(session.events.some((e) => e.type === 'question.explained' && e.data.itemId === 'Q18'));
+});
+
 test('narrative mention of “de nuevo” is not mistaken for a repeat request', async () => {
   const session = await consentedSession('Narrative Repeat Test');
   session.currentSectionId = 'D';
