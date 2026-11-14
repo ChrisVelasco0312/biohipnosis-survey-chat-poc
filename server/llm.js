@@ -1,8 +1,22 @@
-import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { config, ROOT } from './config.js';
 import { sanitizeAck, clamp01, coverageFromExtracted, heuristicCoverage, heuristicScores } from './validators.js';
 import { llmQueueDepth, acquireLlmSlot } from './ratelimit.js';
+import { getKey, keyInfo, markInvalid, markValid } from './keyManager.js';
+
+const SYSTEM_PROMPT = (() => {
+  try {
+    return fs.readFileSync(path.join(ROOT, 'prompts', 'interviewer.txt'), 'utf8');
+  } catch {
+    return 'Eres el entrevistador inicial de Biohipnosis Sistémica. Analiza el mensaje y devuelve solo el JSON solicitado.';
+  }
+})();
+
+/* OpenCode Go routes each conversation with this header; without it the
+   endpoint rejects the request with 400 MissingSessionID. */
+const FALLBACK_SESSION_ID = `biohipnosis-poc-${crypto.randomUUID()}`;
 
 const status = {
   lastError: null,
@@ -14,130 +28,85 @@ const status = {
   failures: 0,
 };
 
-function safeEnv() {
-  const env = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith('POC_')) continue;
-    env[key] = value;
-  }
-  return env;
+function providerError(statusCode, message, extra = {}) {
+  const code =
+    statusCode === 401 || statusCode === 403
+      ? 'key_invalid'
+      : statusCode === 402
+        ? 'provider.quota'
+        : statusCode === 429
+          ? 'provider.free-limit'
+          : statusCode === 408
+            ? 'timeout'
+            : 'provider_error';
+  return Object.assign(new Error(message), { code, status: statusCode, ...extra });
 }
 
-function runOpenCode(prompt, model, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      'run',
-      '--agent',
-      config.llm.agent,
-      '--format',
-      'json',
-      '--log-level',
-      'error',
-      '--model',
-      model,
-    ];
-    const child = spawn('opencode', args, {
-      cwd: ROOT,
-      env: safeEnv(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,
+async function callInference({ model, prompt, timeoutMs, sessionId }) {
+  const key = await getKey();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const started = Date.now();
+  const modelId = String(model || '').replace(/^opencode-go\//, '');
+
+  try {
+    const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${key}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'x-opencode-session': sessionId || FALLBACK_SESSION_ID,
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 900,
+      }),
+      signal: controller.signal,
     });
 
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    const started = Date.now();
-
-    const finish = (err, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (err) reject(err);
-      else resolve(value);
-    };
-
-    const timer = setTimeout(() => {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        child.kill('SIGKILL');
-      }
-      finish(Object.assign(new Error(`OpenCode timed out after ${timeoutMs}ms`), { code: 'timeout' }));
-    }, timeoutMs);
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString('utf8');
-      if (stdout.length > 64 * 1024) {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          child.kill('SIGKILL');
-        }
-        finish(Object.assign(new Error('OpenCode output exceeded limit'), { code: 'output_limit' }));
-      }
-    });
-    child.stderr.on('data', (chunk) => {
-      if (stderr.length < 16 * 1024) stderr += chunk.toString('utf8');
-    });
-    child.on('error', (err) => finish(Object.assign(err, { code: 'spawn_failed' })));
-    child.on('close', (code) => {
-      if (settled) return;
-      const parsed = parseNdjson(stdout);
-      if (parsed.error) {
-        const error = Object.assign(new Error(parsed.error.message || 'OpenCode provider error'), {
-          code: parsed.error.type || 'provider_error',
-          retryAfterMs: parsed.error.retryAfterMs || 0,
-          status: parsed.error.status,
-        });
-        return finish(error);
-      }
-      if (!parsed.text.trim()) {
-        return finish(
-          Object.assign(new Error(`OpenCode returned no text (exit ${code})${stderr ? `: ${stderr.slice(0, 300)}` : ''}`), {
-            code: 'empty_output',
-          }),
-        );
-      }
-      finish(null, {
-        text: parsed.text,
-        tokensIn: parsed.tokensIn,
-        tokensOut: parsed.tokensOut,
-        latencyMs: Date.now() - started,
-        exitCode: code,
-      });
-    });
-
-    child.stdin.on('error', () => {});
-    child.stdin.end(prompt, 'utf8');
-  });
-}
-
-function parseNdjson(raw) {
-  const out = { text: '', tokensIn: 0, tokensOut: 0, error: null };
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('{')) continue;
-    let evt;
+    const raw = await res.text();
+    let data = null;
     try {
-      evt = JSON.parse(trimmed);
+      data = raw ? JSON.parse(raw) : null;
     } catch {
-      continue;
+      // Some gateways return HTML/plain text on errors; handled below.
     }
-    if (evt.type === 'text' && evt.part?.text) out.text += evt.part.text;
-    if (evt.type === 'error' && evt.error) {
-      out.error = {
-        type: evt.error.type || 'provider_error',
-        message: evt.error.message || 'Provider error',
-        retryAfterMs: evt.error.retryAfterMs || 0,
-        status: evt.error.status,
-      };
+
+    if (!res.ok) {
+      const message =
+        data?.error?.message || data?.message || raw.slice(0, 300) || res.statusText || 'Error del proveedor';
+      const retryAfterSec = Number(res.headers.get('retry-after') || 0);
+      const err = providerError(res.status, message, { retryAfterMs: retryAfterSec * 1000 });
+      if (err.code === 'key_invalid') markInvalid(message);
+      throw err;
     }
-    if (evt.type === 'step_finish' && evt.part?.tokens) {
-      out.tokensIn += Number(evt.part.tokens.input || 0) + Number(evt.part.tokens.cache?.read || 0);
-      out.tokensOut += Number(evt.part.tokens.output || 0) + Number(evt.part.tokens.reasoning || 0);
+
+    markValid();
+    const text = String(data?.choices?.[0]?.message?.content || '');
+    if (!text.trim()) {
+      throw Object.assign(new Error('El proveedor devolvió una respuesta vacía.'), { code: 'empty_output' });
     }
+    const usage = data?.usage || {};
+    return {
+      text,
+      tokensIn: Number(usage.prompt_tokens || 0),
+      tokensOut: Number(usage.completion_tokens || 0),
+      latencyMs: Date.now() - started,
+    };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw Object.assign(new Error(`OpenCode timed out after ${timeoutMs}ms`), { code: 'timeout' });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return out;
 }
 
 export function extractJson(text) {
@@ -303,7 +272,7 @@ function estimateTokens(text) {
 async function callModel({ model, prompt, timeoutMs, item, allowedSubfields, text, extracted, session }) {
   const release = await acquireLlmSlot();
   try {
-    const result = await runOpenCode(prompt, model, timeoutMs);
+    const result = await callInference({ model, prompt, timeoutMs, sessionId: session?.id });
     const raw = extractJson(result.text);
     const analysis = normalizeAnalysis(raw, allowedSubfields);
     const tokensIn = result.tokensIn || estimateTokens(prompt);
@@ -415,6 +384,10 @@ export async function analyze({ item, text, session, subfields = null, extracted
       lastError = err;
       status.failures += 1;
       status.lastError = `${model}: ${err.message}`;
+      if (err.code === 'key_invalid' || err.code === 'key_missing' || err.status === 401 || err.status === 403) {
+        // Same credential for every model: retrying the fallback is pointless.
+        break;
+      }
       if (err.code === 'provider.free-limit' || err.code === 'provider.quota' || err.status === 429 || err.status === 402) {
         status.cooldowns[model] = Date.now() + Math.max(err.retryAfterMs || 0, 5 * 60_000);
       }
@@ -443,17 +416,26 @@ export async function analyze({ item, text, session, subfields = null, extracted
 
 export function getStatus() {
   const now = Date.now();
+  const key = keyInfo();
   return {
     mode: config.llm.mode,
     model: config.llm.model,
     fallbackModel: config.llm.fallbackModel,
-    available: config.llm.mode === 'opencode' && !(status.cooldowns[config.llm.model] > now),
+    available:
+      config.llm.mode === 'opencode' &&
+      key.state !== 'invalid' &&
+      key.state !== 'missing' &&
+      !(status.cooldowns[config.llm.model] > now),
     lastError: status.lastError,
     lastModel: status.lastModel,
     lastLatencyMs: status.lastLatencyMs,
     lastCallAt: status.lastCallAt,
     calls: status.calls,
     failures: status.failures,
+    keyState: key.state,
+    keyExpiresAt: key.expiresAt,
+    keyUpdatedAt: key.updatedAt,
+    key,
     cooldowns: Object.fromEntries(
       Object.entries(status.cooldowns)
         .filter(([, until]) => until > now)

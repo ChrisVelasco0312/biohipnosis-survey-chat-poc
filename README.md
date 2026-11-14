@@ -1,9 +1,10 @@
 # Biohipnosis Sistémica — entrevista inicial (POC)
 
-Prueba de concepto **local** de la entrevista inicial de 39 ítems descrita en
+Prueba de concepto de la entrevista inicial de 39 ítems descrita en
 `docs/04_system_specification_en.md`, con una interfaz de chat inspirada en
 WhatsApp Web, una consola para el profesional y un laboratorio de pruebas de
-seguridad.
+seguridad. Corre en local o desplegada en **Firebase Hosting + Cloud Run** con
+acceso restringido por cuenta de Google.
 
 > Esta POC no es un producto clínico. No diagnostica, no trata y no sustituye
 > atención médica. Usa datos ficticios.
@@ -54,18 +55,23 @@ npm start
 
 Abrir <http://127.0.0.1:3210>. El servidor escucha solo en `127.0.0.1`.
 
-Si el proveedor gratuito está agotado o no hay cuota, la POC sigue funcionando
-con el motor heurístico:
+Si el proveedor no está disponible o no hay cuota, la POC sigue funcionando con
+el motor heurístico:
 
 ```bash
 POC_LLM=off npm start
 ```
 
-Para forzar el modelo real:
+Para usar el modelo real en local hace falta una clave de OpenCode (la misma que
+se rota desde la consola del profesional):
 
 ```bash
-POC_LLM=opencode POC_MODEL=opencode/glm-5.3-flash-free npm start
+OPENCODE_API_KEY='sk-...' POC_LLM=opencode npm start
 ```
+
+En local la autenticación con Google está desactivada (`POC_AUTH=off`) y la
+consola usa el token de administración. En producción se activa con
+`POC_AUTH=on`; ver [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 El token de administración de demo es `poc-admin`. Cámbialo:
 
@@ -122,8 +128,13 @@ server/index.js  ── auth de sesión/admin, rate limit, estáticos, headers
   ├─ catalog.js      39 ítems, secciones, subcampos, criterios
   ├─ validators.js   formatos, rúbrica, crisis, inyección, PII, sanitización
   ├─ safety.js       respuestas fijas y pantallas de salida
-  ├─ llm.js          OpenCode restringido + fallback heurístico
-  ├─ store.js        sesiones cifradas, índice, auditoría, métricas
+  ├─ llm.js          OpenCode Inference (HTTPS) + fallback heurístico
+  ├─ auth.js         Firebase ID token + allowlist (Google Sign-In)
+  ├─ keyManager.js   rotación de la clave en Secret Manager + Firestore
+  ├─ notify.js       avisos de renovación por correo (Resend)
+  ├─ store.js        fachada de sesiones cifradas, índice, auditoría, métricas
+  ├─ store-fs.js     driver local (data/)
+  ├─ store-cloud.js  driver Firestore + GCS (Cloud Run)
   ├─ crypto.js       AES-256-GCM, hashes, comparación segura
   ├─ media.js        adjuntos y voz simulada
   ├─ sandbox.js      pruebas libres efímeras (solo memoria, TTL 2 h)
@@ -136,10 +147,10 @@ siguiente pregunta, los umbrales, las pausas, el presupuesto y las acciones. Si
 el modelo falla, responde lento, devuelve JSON inválido o intenta cambiar el
 flujo, el motor usa heurística y continúa.
 
-El agente de OpenCode se define en `opencode.json` y
-`prompts/interviewer.txt`: sin herramientas, un solo paso, temperatura 0 y
-salida JSON estricta. El prompt del usuario se envía por **stdin**, no como
-argumento del proceso.
+El prompt del sistema vive en `prompts/interviewer.txt`: sin herramientas, un
+solo paso, temperatura 0.2 y salida JSON estricta. El servidor lo envía como
+mensaje `system` a la API compatible con OpenAI de OpenCode y valida la
+respuesta antes de usarla.
 
 ---
 
@@ -147,14 +158,25 @@ argumento del proceso.
 
 | Variable | Default | Uso |
 |---|---|---|
-| `POC_HOST` | `127.0.0.1` | Interfaz de escucha. No exponer a Internet. |
-| `POC_PORT` | `3210` | Puerto. |
-| `POC_DATA_DIR` | `./data` | Datos cifrados, índice, auditoría, outbox. |
+| `POC_HOST` | `127.0.0.1` | Interfaz de escucha. En Cloud Run: `0.0.0.0`. |
+| `POC_PORT` | `3210` | Puerto (`PORT` también se acepta). |
+| `POC_DATA_DIR` | `./data` | Datos locales cuando `POC_STORE=fs`. |
+| `POC_STORE` | `fs` | `fs` (local) o `cloud` (Firestore + GCS). |
+| `POC_GCS_BUCKET` | `biohipnosis-poc-2026-data` | Bucket de sesiones, medios y outbox. |
+| `POC_AUTH` | `off` | `on` exige Google Sign-In + allowlist en `/api/*`. |
+| `POC_ALLOWED_EMAILS` | vacío | Correos con acceso, separados por coma. |
+| `POC_ADMIN_EMAILS` | `cristianvelasco0312@gmail.com` | Correos con consola de profesional. |
+| `POC_OWNER_EMAIL` | `cristianvelasco0312@gmail.com` | Destinatario de solicitudes de renovación. |
+| `POC_PUBLIC_ORIGIN` | vacío | Origen público, p. ej. `https://…web.app`, para validar same-origin detrás de Hosting. |
 | `POC_LLM` | `opencode` | `opencode`, `off` o `heuristic`. |
-| `POC_MODEL` | `opencode/glm-5.3-flash-free` | Modelo primario. |
-| `POC_FALLBACK_MODEL` | `opencode/deepseek-v4.1-flash-free` | Fallback. |
-| `POC_ADMIN_TOKEN` | `poc-admin` | Token de la consola. Cámbialo. |
-| `POC_MASTER_KEY` | generada | Clave base64 de 32 bytes. |
+| `POC_MODEL` | `opencode-go/glm-5.3-flash` | Modelo primario. |
+| `POC_FALLBACK_MODEL` | `opencode-go/deepseek-v4.1-flash` | Fallback. |
+| `OPENCODE_API_KEY` | vacío | Clave de OpenCode en desarrollo. En la nube se lee de Secret Manager. |
+| `POC_OPENCODE_SECRET` | `OPENCODE_API_KEY` | Nombre del secreto en Secret Manager. |
+| `POC_ADMIN_TOKEN` | `poc-admin` | Token de la consola cuando `POC_AUTH=off`. Cámbialo. |
+| `POC_MASTER_KEY` | generada | Clave base64 de 32 bytes para cifrar sesiones. |
+| `RESEND_API_KEY` | vacío | Habilita los correos de renovación. |
+| `POC_EMAIL_FROM` | `onboarding@resend.dev` | Remitente verificado en Resend. |
 | `POC_SESSION_BUDGET_USD` | `0.15` | Presupuesto de sombra por sesión. |
 | `POC_DAILY_BUDGET_USD` | `5` | Tope diario de sombra. |
 | `POC_RATE_LIMIT` | `on` | `off` solo para pruebas automatizadas. |
@@ -191,7 +213,7 @@ Ver [`docs/SECURITY.md`](docs/SECURITY.md) para el modelo de amenaza y
 ## 7. Pruebas
 
 ```bash
-npm test          # 43 pruebas unitarias + integración
+npm test          # 47 pruebas unitarias + integración
 npm run security  # suite determinista 22/22
 npm run smoke     # smoke test HTTP (servidor debe estar arriba)
 ```
@@ -203,7 +225,7 @@ simulado. Usa `POC_LLM=off` para no depender de la red.
 Resultado de referencia en este entorno:
 
 ```
-npm test          -> 43 pass, 0 fail
+npm test          -> 47 pass, 0 fail
 npm run security  -> 1 pass (22/22 checks)
 ```
 
@@ -216,12 +238,17 @@ npm run security  -> 1 pass (22/22 checks)
 - La voz es **simulada**: se graba audio en el navegador, pero no se transcribe
   con Whisper. La transcripción se escribe/edita y la confianza es un control
   de la demo.
-- El correo no sale del equipo; se guarda en `data/outbox/`.
-- No hay autenticación de usuarios finales: el token de sesión es local y
-  demuestra separación de acceso, no identidad fuerte.
-- El cifrado protege en reposo, no contra un administrador local comprometido.
-- El modelo gratuito puede estar limitado por cuota; la POC degrada a heurística
-  y lo muestra en la interfaz.
+- El correo de **exportación** sigue siendo simulado: se guarda en
+  `data/outbox/` (o GCS). Solo los avisos de renovación de la clave salen por
+  Resend.
+- El cifrado protege en reposo, no contra un administrador con acceso a las
+  claves del proyecto.
+- El modelo puede estar limitado por cuota; la POC degrada a heurística y lo
+  muestra en la interfaz.
+- La rotación de la clave de OpenCode es manual y auditada: OpenCode no ofrece
+  rotación programática soportada para claves personales.
+- Cloud Run está limitado a **una instancia** porque el índice y la cadena de
+  auditoría usan caché en memoria con escritura diferida.
 - La retención se reporta y se simula; el borrado real está disponible, pero no
   hay un planificador de purga.
 - No usar con datos reales de pacientes sin revisar cumplimiento, contratos,

@@ -1,160 +1,65 @@
-import fs from 'node:fs';
-import path from 'node:path';
+/* Storage facade. Callers keep the original synchronous API; persistence is
+   delegated to either the filesystem driver (local) or the Firestore + GCS
+   driver (Cloud Run). The cloud driver loads into memory on init() and writes
+   through asynchronously; handler() awaits ready()/flush(). */
 import { config } from './config.js';
-import { totalItems } from './catalog.js';
-import { ensureKey, hashEntry, open, randomId, seal, sha256, stableStringify } from './crypto.js';
+import { ensureKey, hashEntry, open, randomId, seal, sha256 } from './crypto.js';
+import { createFsDriver } from './store-fs.js';
+import { createCloudDriver } from './store-cloud.js';
+import { defaultSession, emptyMetrics, maskEmail, maskName, maskPhone, migrateSession } from './store-shared.js';
 
-const paths = {
-  sessions: path.join(config.dataDir, 'sessions'),
-  media: path.join(config.dataDir, 'media'),
-  outbox: path.join(config.dataDir, 'outbox'),
-  index: path.join(config.dataDir, 'index.json'),
-  audit: path.join(config.dataDir, 'audit.jsonl'),
-  metrics: path.join(config.dataDir, 'metrics.json'),
-  retention: path.join(config.dataDir, 'retention.json'),
-};
-
+let driver = createFsDriver();
 let index = { sessions: {} };
-let lastAuditHash = 'GENESIS';
 let metrics = { totals: emptyMetrics(), daily: {}, models: {} };
+let auditEntries = [];
+let lastAuditHash = 'GENESIS';
+let loading = null;
 
-function emptyMetrics() {
-  return {
-    sessionsStarted: 0,
-    sessionsCompleted: 0,
-    messagesIn: 0,
-    messagesOut: 0,
-    llmCalls: 0,
-    fallbacks: 0,
-    tokensIn: 0,
-    tokensOut: 0,
-    audioMinutes: 0,
-    costUsd: 0,
-  };
-}
-
-function atomicWrite(file, data, mode = 0o600) {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, data, { mode });
-  fs.renameSync(tmp, file);
-}
-
-function loadJson(file, fallback) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
+function applyLoaded(data) {
+  index = data.index || { sessions: {} };
+  index.sessions ||= {};
+  metrics = data.metrics || { totals: emptyMetrics(), daily: {}, models: {} };
+  metrics.totals ||= emptyMetrics();
+  metrics.daily ||= {};
+  metrics.models ||= {};
+  auditEntries = Array.isArray(data.audit) ? data.audit : [];
+  lastAuditHash = auditEntries.at(-1)?.hash || 'GENESIS';
 }
 
 export function init() {
   ensureKey();
-  for (const dir of [config.dataDir, paths.sessions, paths.media, paths.outbox]) {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    try {
-      fs.chmodSync(dir, 0o700);
-    } catch {
-      // Best effort on non-POSIX filesystems.
-    }
-  }
-  index = loadJson(paths.index, { sessions: {} });
-  index.sessions ||= {};
-  metrics = loadJson(paths.metrics, { totals: emptyMetrics(), daily: {}, models: {} });
-  metrics.totals ||= emptyMetrics();
-  metrics.daily ||= {};
-  metrics.models ||= {};
+  driver = config.store === 'cloud' ? createCloudDriver() : createFsDriver();
+  index = { sessions: {} };
+  metrics = { totals: emptyMetrics(), daily: {}, models: {} };
+  auditEntries = [];
+  lastAuditHash = 'GENESIS';
+  loading = null;
 
-  if (fs.existsSync(paths.audit)) {
-    const lines = fs.readFileSync(paths.audit, 'utf8').trim().split('\n').filter(Boolean);
-    const last = lines.at(-1);
-    if (last) {
-      try {
-        lastAuditHash = JSON.parse(last).hash || 'GENESIS';
-      } catch {
-        lastAuditHash = 'GENESIS';
-      }
-    }
+  if (driver.sync) {
+    applyLoaded(driver.load());
+  } else {
+    loading = driver.load().then(applyLoaded);
+    loading.catch((err) => {
+      console.error(`[store] cloud load failed: ${err.message}`);
+    });
   }
+}
+
+/** Resolves once the cloud driver has loaded Firestore/GCS state. */
+export function ready() {
+  return loading || Promise.resolve();
+}
+
+/** Waits for pending write-through operations (GCS/Firestore). */
+export function flush() {
+  return driver.flush();
 }
 
 export function dataPaths() {
-  return { ...paths };
+  return driver.dataPaths();
 }
 
-export function maskPhone(phone) {
-  if (!phone) return '—';
-  const digits = String(phone).replace(/[^\d+]/g, '');
-  if (digits.length <= 4) return '••••';
-  return `${digits.slice(0, 3)}•••••${digits.slice(-3)}`;
-}
-
-export function maskName(name) {
-  if (!name) return 'Sin nombre';
-  const parts = String(name).trim().split(/\s+/);
-  if (parts.length === 1) return `${parts[0].slice(0, 2)}•••`;
-  return `${parts[0]} ${parts[1][0]}.`;
-}
-
-export function maskEmail(email) {
-  if (!email || !email.includes('@')) return '—';
-  const [user, domain] = email.split('@');
-  return `${user.slice(0, 2)}•••@${domain}`;
-}
-
-export function defaultSession({ name, phoneE164 }) {
-  const now = new Date().toISOString();
-  return {
-    id: randomId('ses_', 12),
-    waId: randomId('wa_', 12),
-    clientToken: randomId('ct_', 24),
-    name: String(name || 'Consultante').trim().slice(0, 120),
-    phoneE164: phoneE164 || '',
-    locale: 'es-CO',
-    status: 'NEW',
-    surveyVersion: 'poc-1.0',
-    currentSectionId: null,
-    currentItemId: null,
-    q21Step: 0,
-    q21Steps: [],
-    createdAt: now,
-    updatedAt: now,
-    lastInboundAt: null,
-    lastOutboundAt: null,
-    csWindowExpiresAt: null,
-    clockOffsetMs: 0,
-    ageConfirmed: false,
-    consent: null,
-    items: {},
-    messages: [],
-    events: [],
-    riskLevel: 'none',
-    escalations: [],
-    pendingConfirmation: null,
-    sectionReview: null,
-    pendingCorrection: null,
-    correctionReturn: null,
-    summary: null,
-    destinationEmail: null,
-    completedAt: null,
-    lastTemplateAt: null,
-    reminderSent: false,
-    progress: { answered: 0, partial: 0, total: totalItems() },
-    budget: {
-      limitUsd: config.limits.sessionBudgetUsd,
-      spentUsd: 0,
-      tokensIn: 0,
-      tokensOut: 0,
-      audioMinutes: 0,
-      exhausted: false,
-      warned: false,
-    },
-    counters: { turns: 0, clarifications: 0, reminders: 0, blocked: 0, corrections: 0, spam: 0 },
-    flags: { forceLlmFailure: false, forceBadJson: false },
-    lastError: null,
-    meta: {},
-  };
-}
+export { defaultSession, maskEmail, maskName, maskPhone };
 
 export function createSession(input) {
   const session = defaultSession(input);
@@ -173,33 +78,28 @@ export function createSession(input) {
 
 export function sessionPath(id) {
   if (!/^ses_[A-Za-z0-9_-]+$/.test(String(id))) throw new Error('Invalid session id');
-  return path.join(paths.sessions, `${id}.enc`);
+  if (driver.kind === 'cloud') return `gs://${config.gcp.bucket}/sessions/${id}.enc`;
+  return driver.sessionPath(id);
 }
 
 export function getSession(id) {
-  const file = sessionPath(id);
-  if (!fs.existsSync(file)) return null;
-  const session = open(fs.readFileSync(file, 'utf8'));
-  return migrateSession(session);
-}
-
-function migrateSession(session) {
-  const base = defaultSession({ name: session.name, phoneE164: session.phoneE164 });
-  const merged = { ...base, ...session };
-  merged.budget = { ...base.budget, ...(session.budget || {}) };
-  merged.counters = { ...base.counters, ...(session.counters || {}) };
-  merged.flags = { ...base.flags, ...(session.flags || {}) };
-  merged.progress = { ...base.progress, ...(session.progress || {}) };
-  merged.meta = { ...(session.meta || {}) };
-  merged.items ||= {};
-  merged.messages ||= [];
-  merged.events ||= [];
-  return merged;
+  let sealed;
+  try {
+    sealed = driver.readSession(id);
+  } catch {
+    return null;
+  }
+  if (!sealed) return null;
+  try {
+    return migrateSession(open(sealed));
+  } catch {
+    return null;
+  }
 }
 
 export function saveSession(session) {
   session.updatedAt = new Date(Date.now() + (session.clockOffsetMs || 0)).toISOString();
-  atomicWrite(sessionPath(session.id), seal(session));
+  driver.writeSession(session.id, seal(session));
   const prev = index.sessions[session.id] || {};
   index.sessions[session.id] = {
     id: session.id,
@@ -210,12 +110,13 @@ export function saveSession(session) {
     currentItemId: session.currentItemId,
     progress: session.progress,
     riskLevel: session.riskLevel,
+    ownerEmail: session.ownerEmail || null,
     createdAt: prev.createdAt || session.createdAt,
     updatedAt: session.updatedAt,
     completedAt: session.completedAt,
     costUsd: Number(session.budget?.spentUsd || 0),
   };
-  atomicWrite(paths.index, JSON.stringify(index, null, 2));
+  driver.saveIndex(index);
   return session;
 }
 
@@ -228,10 +129,9 @@ export function getIndexEntry(id) {
 }
 
 export function deleteSession(id) {
-  const file = sessionPath(id);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
+  driver.removeSession(id);
   delete index.sessions[id];
-  atomicWrite(paths.index, JSON.stringify(index, null, 2));
+  driver.saveIndex(index);
   appendAudit({
     type: 'session.erased',
     actor: 'data-subject',
@@ -255,44 +155,34 @@ export function appendAudit({ type, actor = 'system', action = '', entity = '', 
     prevHash: lastAuditHash,
   };
   const entry = { ...core, hash: hashEntry(lastAuditHash, core) };
-  fs.appendFileSync(paths.audit, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+  auditEntries.push(entry);
   lastAuditHash = entry.hash;
+  // `seq` is storage metadata only: never part of the hashed payload.
+  driver.appendAudit({ ...entry, seq: auditEntries.length });
   return entry;
 }
 
 export function readAudit(limit = 200) {
-  if (!fs.existsSync(paths.audit)) return [];
-  const lines = fs.readFileSync(paths.audit, 'utf8').trim().split('\n').filter(Boolean);
-  return lines.slice(-limit).map((line) => {
-    try {
-      return JSON.parse(line);
-    } catch {
-      return { type: 'audit.corrupt', raw: line.slice(0, 200) };
-    }
-  });
+  return auditEntries.slice(-Math.max(1, Number(limit) || 200));
 }
 
 export function verifyAudit() {
-  if (!fs.existsSync(paths.audit)) return { valid: true, entries: 0 };
-  const lines = fs.readFileSync(paths.audit, 'utf8').trim().split('\n').filter(Boolean);
   let prev = 'GENESIS';
-  for (let i = 0; i < lines.length; i += 1) {
-    let entry;
-    try {
-      entry = JSON.parse(lines[i]);
-    } catch {
-      return { valid: false, entries: lines.length, brokenAt: i, reason: 'invalid-json' };
+  for (let i = 0; i < auditEntries.length; i += 1) {
+    const entry = auditEntries[i];
+    if (!entry || typeof entry !== 'object') {
+      return { valid: false, entries: auditEntries.length, brokenAt: i, reason: 'invalid-json' };
     }
     if (entry.prevHash !== prev) {
-      return { valid: false, entries: lines.length, brokenAt: i, reason: 'broken-chain' };
+      return { valid: false, entries: auditEntries.length, brokenAt: i, reason: 'broken-chain' };
     }
-    const { hash, ...core } = entry;
+    const { hash, seq, ...core } = entry;
     if (hashEntry(prev, core) !== hash) {
-      return { valid: false, entries: lines.length, brokenAt: i, reason: 'hash-mismatch' };
+      return { valid: false, entries: auditEntries.length, brokenAt: i, reason: 'hash-mismatch' };
     }
     prev = hash;
   }
-  return { valid: true, entries: lines.length, head: prev };
+  return { valid: true, entries: auditEntries.length, head: prev };
 }
 
 export function recordSessionStart(id) {
@@ -356,7 +246,7 @@ function today() {
 }
 
 function persistMetrics() {
-  atomicWrite(paths.metrics, JSON.stringify(metrics, null, 2));
+  driver.saveMetrics(metrics);
 }
 
 export function getMetrics() {
@@ -368,29 +258,23 @@ export function dailySpend() {
 }
 
 export function writeOutboxFile(name, contents) {
-  if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error('Invalid outbox filename');
-  const file = path.join(paths.outbox, name);
-  atomicWrite(file, contents);
-  return file;
+  return driver.saveOutbox(name, contents);
 }
 
 export function listOutbox() {
-  if (!fs.existsSync(paths.outbox)) return [];
-  return fs
-    .readdirSync(paths.outbox)
-    .filter((name) => /^[A-Za-z0-9._-]+$/.test(name))
-    .map((name) => {
-      const stat = fs.statSync(path.join(paths.outbox, name));
-      return { name, bytes: stat.size, createdAt: stat.mtime.toISOString() };
-    })
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return driver.listOutbox();
 }
 
 export function readOutboxFile(name) {
-  if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error('Invalid outbox filename');
-  const file = path.join(paths.outbox, name);
-  if (!fs.existsSync(file)) return null;
-  return fs.readFileSync(file, 'utf8');
+  return driver.readOutbox(name);
+}
+
+export function saveMedia(sessionId, fileId, ext, buffer) {
+  return driver.saveMedia(sessionId, fileId, ext, buffer);
+}
+
+export function deleteMedia(sessionId) {
+  return driver.removeMedia(sessionId);
 }
 
 export function retentionReport(now = Date.now()) {

@@ -4,10 +4,11 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-const CHATS_KEY = 'biohipnosis.poc.chats.v1';
-const CURRENT_KEY = 'biohipnosis.poc.current.v1';
+let CHATS_KEY = 'biohipnosis.poc.chats.v1';
+let CURRENT_KEY = 'biohipnosis.poc.current.v1';
 const ADMIN_KEY = 'biohipnosis.poc.admin.v1';
 const THEME_KEY = 'biohipnosis.poc.theme.v1';
+const FIREBASE_VERSION = '11.6.0';
 
 const TERMINAL = new Set(['COMPLETED', 'OPTED_OUT', 'ERASED']);
 const STATUS_LABELS = {
@@ -49,6 +50,12 @@ const state = {
   chats: loadChats(),
   catalog: null,
   health: null,
+  authMode: 'off',
+  auth: null,
+  firebaseUser: null,
+  me: null,
+  keyInfo: null,
+  started: false,
   adminToken: localStorage.getItem(ADMIN_KEY) || '',
   adminSessions: [],
   adminSession: null,
@@ -170,8 +177,19 @@ function currentItemLabel(session = state.session) {
   return item ? `${item.id} · ${item.label}` : session.currentItemId;
 }
 
+async function authHeader() {
+  const user = state.auth?.currentUser;
+  if (!user) return {};
+  try {
+    const idToken = await user.getIdToken();
+    return { authorization: `Bearer ${idToken}` };
+  } catch {
+    return {};
+  }
+}
+
 async function api(path, { method = 'GET', body, admin = false, session = true, token } = {}) {
-  const headers = { accept: 'application/json' };
+  const headers = { accept: 'application/json', ...(await authHeader()) };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (admin) headers['x-admin-token'] = token || state.adminToken;
   if (session) headers['x-session-token'] = token || state.token;
@@ -198,9 +216,52 @@ async function adminFetch(path, options = {}) {
     headers: {
       ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
       'x-admin-token': state.adminToken,
+      ...(await authHeader()),
       ...(options.headers || {}),
     },
   });
+}
+
+function isAdmin() {
+  if (state.authMode === 'on') return !!state.me?.isAdmin;
+  return !!state.adminToken;
+}
+
+function scopeStorage(uid) {
+  const scope = uid || 'anon';
+  CHATS_KEY = `biohipnosis.poc.${scope}.chats.v1`;
+  CURRENT_KEY = `biohipnosis.poc.${scope}.current.v1`;
+  state.chats = loadChats();
+}
+
+function showAuthGate(message = '') {
+  const gate = $('#auth-gate');
+  gate.hidden = false;
+  document.body.classList.add('auth-locked');
+  const error = $('#auth-error');
+  error.textContent = message;
+  error.classList.toggle('hidden', !message);
+}
+
+function hideAuthGate() {
+  $('#auth-gate').hidden = true;
+  document.body.classList.remove('auth-locked');
+}
+
+async function initFirebaseAuth() {
+  const [{ initializeApp }, authModule, { firebaseConfig }] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-auth.js`),
+    import('./firebase-config.js'),
+  ]);
+  const app = initializeApp(firebaseConfig);
+  const auth = authModule.getAuth(app);
+  auth.useDeviceLanguage();
+  state.authModule = authModule;
+  await auth.authStateReady();
+  const provider = new authModule.GoogleAuthProvider();
+  state.googleProvider = provider;
+  return auth;
 }
 
 function toast(message, type = 'ok') {
@@ -310,25 +371,61 @@ function renderModelLine() {
   }
   dot.className = 'model-dot warn';
   label.textContent = 'Fallback heurístico activo';
-  $('#model-line').title = llm.lastError || 'El proveedor gratuito no está disponible; el motor determinista sigue funcionando.';
+  $('#model-line').title = llm.lastError || 'El proveedor no está disponible; el motor determinista sigue funcionando.';
+}
+
+function renderKeyBanner(llm = state.health?.llm) {
+  const banner = $('#key-banner');
+  if (!banner) return;
+  if (state.authMode !== 'on') {
+    banner.classList.add('hidden');
+    return;
+  }
+  const keyState = llm?.keyState || llm?.key?.state;
+  const expiresAt = llm?.keyExpiresAt || state.me?.key?.expiresAt;
+  const remaining = expiresAt ? Date.parse(expiresAt) - Date.now() : null;
+  const warning =
+    state.me?.keyWarning ||
+    (keyState === 'invalid' ? 'expired' : remaining !== null && remaining <= 0 ? 'expired' : remaining !== null && remaining <= 72 * 3600_000 ? 'expiring' : null);
+  const broken = keyState === 'invalid' || keyState === 'missing';
+  if (!broken && warning !== 'expired' && warning !== 'expiring') {
+    banner.classList.add('hidden');
+    return;
+  }
+  banner.classList.remove('hidden');
+  banner.classList.toggle('expiring', !broken && warning === 'expiring');
+  if (broken || warning === 'expired') {
+    $('#key-banner-title').textContent = 'El asistente está en modo de respaldo';
+    $('#key-banner-text').textContent =
+      'La clave del modelo de lenguaje venció o fue revocada. La entrevista continúa con respuestas guiadas.';
+    $('#request-key').textContent = 'Solicitar renovación';
+  } else {
+    $('#key-banner-title').textContent = 'La clave del modelo vence pronto';
+    $('#key-banner-text').textContent =
+      'Pide la renovación ahora para que la entrevista siga usando el modelo de lenguaje.';
+    $('#request-key').textContent = 'Solicitar renovación';
+  }
 }
 
 async function refreshHealth() {
   try {
     state.health = await api('/api/health', { session: false });
     renderModelLine();
+    renderKeyBanner();
     if (state.health.adminTokenDefault) {
       $('#admin-hint').innerHTML = 'En la POC, el token por defecto es <code>poc-admin</code>. Cambia <code>POC_ADMIN_TOKEN</code> para producción.';
     }
   } catch {
     state.health = null;
     renderModelLine();
+    renderKeyBanner();
   }
 }
 
 async function loadConfig() {
   try {
     const data = await api('/api/config', { session: false });
+    state.authMode = data.authMode || 'off';
     state.catalog = data.catalog;
   } catch (error) {
     toast(`No se pudo cargar el catálogo: ${error.message}`, 'error');
@@ -398,7 +495,7 @@ async function createSession({ name, phone }) {
   upsertChat(data.session, data.token);
   saveCurrent(data.session.id);
   render();
-  if (state.adminToken) refreshAdmin();
+  if (isAdmin()) refreshAdmin();
   return data.session;
 }
 
@@ -450,7 +547,7 @@ async function openChat(id, token, { silent = false } = {}) {
     state.selectedItem = null;
     saveCurrent(id);
     upsertChat(data.session, token);
-    if (state.adminToken) refreshAdmin();
+    if (isAdmin()) refreshAdmin();
     render();
     if (!silent) closeSidebar();
   } catch (error) {
@@ -484,7 +581,7 @@ function render() {
   renderSandboxBar();
   renderComposer();
   renderChats();
-  if (state.adminToken) renderInspectorShell();
+  if (isAdmin()) renderInspectorShell();
 }
 
 function renderHeader() {
@@ -762,7 +859,7 @@ async function sendMessage({ text = '', buttonId = null, attachment = null, voic
       return true;
     }
     render();
-    if (state.adminToken && !sandbox) refreshAdmin();
+    if (isAdmin() && !sandbox) refreshAdmin();
     return true;
   } catch (error) {
     if (error.status === 429) {
@@ -928,23 +1025,26 @@ function openChatMenu() {
 /* ------------------------------------------------------------------ */
 
 function toggleInspector(force) {
+  if (state.authMode === 'on' && !isAdmin()) return;
   const app = $('#app');
+  let open;
   if (window.innerWidth <= 1280) {
-    app.classList.toggle('inspector-open', force ?? !app.classList.contains('inspector-open'));
+    open = force ?? !app.classList.contains('inspector-open');
+    app.classList.toggle('inspector-open', open);
   } else {
-    app.classList.remove('inspector-collapsed');
+    open = force ?? app.classList.contains('inspector-collapsed');
+    app.classList.toggle('inspector-collapsed', !open);
   }
-  if (force === false) closeInspector();
 }
 
 function closeInspector() {
   const app = $('#app');
-  if (window.innerWidth <= 1280) app.classList.remove('inspector-open');
-  else app.classList.add('inspector-collapsed');
+  app.classList.remove('inspector-open');
+  app.classList.add('inspector-collapsed');
 }
 
 function renderInspectorShell() {
-  const logged = !!state.adminToken;
+  const logged = isAdmin();
   $('#inspector-login').classList.toggle('hidden', logged);
   $('#inspector-content').classList.toggle('hidden', !logged);
   if (!logged) return;
@@ -964,7 +1064,7 @@ function renderInspectorShell() {
 }
 
 async function refreshAdmin({ quiet = false } = {}) {
-  if (!state.adminToken) {
+  if (!isAdmin()) {
     renderInspectorShell();
     return;
   }
@@ -979,7 +1079,7 @@ async function refreshAdmin({ quiet = false } = {}) {
     if (id) await loadAdminSession(id);
     renderInspectorShell();
   } catch (error) {
-    if (error.status === 401 || error.status === 403) {
+    if ((error.status === 401 || error.status === 403) && state.authMode !== 'on') {
       state.adminToken = '';
       localStorage.removeItem(ADMIN_KEY);
       renderInspectorShell();
@@ -1000,8 +1100,11 @@ async function loadAdminSession(id) {
 }
 
 async function loadAdminTabData(tab) {
-  if (!state.adminToken) return;
+  if (!isAdmin()) return;
   try {
+    if (tab === 'key') {
+      state.keyInfo = await api('/api/admin/key', { admin: true });
+    }
     if (tab === 'costs') {
       state.metrics = await api('/api/admin/metrics', { admin: true });
     }
@@ -1031,8 +1134,12 @@ function metricCard(label, value, hint = '') {
 
 function renderInspectorBody() {
   const body = $('#inspector-body');
-  if (!state.adminToken) {
+  if (!isAdmin()) {
     body.innerHTML = '';
+    return;
+  }
+  if (state.tab === 'key') {
+    body.innerHTML = renderKeyTab();
     return;
   }
   if (!state.adminSession) {
@@ -1060,6 +1167,48 @@ function renderInspectorBody() {
     default:
       body.innerHTML = renderOverviewTab(session);
   }
+}
+
+function renderKeyTab() {
+  const info = state.keyInfo || {};
+  const key = info.key || {};
+  const labels = {
+    valid: 'Operativa',
+    invalid: 'Inválida o expirada',
+    missing: 'Sin configurar',
+    unknown: 'Sin comprobar',
+  };
+  const tone = key.state === 'valid' ? 'ok' : key.state === 'unknown' ? 'info' : 'danger';
+  const expires = key.expiresAt ? `${formatDate(key.expiresAt)} ${formatTime(key.expiresAt)}` : 'Sin fecha de expiración';
+  const checked = key.checkedAt ? relativeTime(key.checkedAt) : 'nunca';
+  const warning = info.warning === 'expired' ? 'La clave ya expiró.' : info.warning === 'expiring' ? 'La clave vence en menos de 72 horas.' : '';
+  return `<div class="inspector-section key-panel">
+    <div class="session-headline">
+      <div><h3>Clave de OpenCode</h3><p>Rotación manual y auditada</p></div>
+      <span class="pill ${tone}">${esc(labels[key.state] || key.state || 'Sin comprobar')}</span>
+    </div>
+    ${warning ? `<div class="alert-block ${info.warning === 'expired' ? 'danger' : ''}"><strong>Atención</strong><p>${esc(warning)}</p></div>` : ''}
+    <dl class="profile-grid">
+      <div><span>Huella</span><strong>${esc(key.fingerprint || '—')}</strong></div>
+      <div><span>Expira</span><strong>${esc(expires)}</strong></div>
+      <div><span>Última comprobación</span><strong>${esc(checked)}</strong></div>
+      <div><span>Correo de avisos</span><strong>${info.notificationsEnabled ? 'Resend configurado' : 'Sin proveedor de correo'}</strong></div>
+    </dl>
+    ${key.lastError ? `<div class="alert-block danger"><strong>Último error</strong><p>${esc(key.lastError)}</p></div>` : ''}
+    <form class="key-form" id="key-form">
+      <label>Nueva clave (se guarda en Secret Manager)
+        <input id="key-value" type="password" autocomplete="off" spellcheck="false" placeholder="oc_sk_… o sk-…" required />
+      </label>
+      <label>Fecha de expiración (opcional)
+        <input id="key-expires" type="date" />
+      </label>
+      <div class="action-row">
+        <button class="primary-btn" type="submit">Validar y guardar</button>
+        <button class="ghost-btn" type="button" data-key-action="test">Probar clave actual</button>
+      </div>
+      <p class="hint">La clave se valida contra OpenCode antes de guardarse. Cada rotación queda registrada en la auditoría. La clave se muestra una sola vez en OpenCode Console.</p>
+    </form>
+  </div>`;
 }
 
 function renderOverviewTab(session) {
@@ -1215,7 +1364,7 @@ function renderExportTab(session) {
       <div class="action-row"><button class="ghost-btn" type="submit">Generar correo simulado</button></div>
     </form>
     <h3>Bandeja simulada</h3>
-    <div class="event-list">${(state.outbox || []).map((file) => `<div class="outbox-row"><div><strong>${esc(file.name)}</strong><span>${esc(formatBytes(file.bytes))} · ${esc(relativeTime(file.createdAt))}</span></div><a class="text-btn" href="/api/admin/outbox/${encodeURIComponent(file.name)}?token=${encodeURIComponent(state.adminToken)}" target="_blank" rel="noopener">Abrir</a></div>`).join('') || '<p class="muted">Sin correos generados.</p>'}</div>
+    <div class="event-list">${(state.outbox || []).map((file) => `<div class="outbox-row"><div><strong>${esc(file.name)}</strong><span>${esc(formatBytes(file.bytes))} · ${esc(relativeTime(file.createdAt))}</span></div><button class="text-btn" type="button" data-outbox="${esc(file.name)}">Abrir</button></div>`).join('') || '<p class="muted">Sin correos generados.</p>'}</div>
     ${state.retention ? `<h3>Retención</h3><div class="event-list"><div class="event-row"><time>Audio</time><div><strong>${state.retention.audio?.eligible ?? 0} elegibles</strong><span>${state.retention.audio?.retentionDays ?? 30} días</span></div></div><div class="event-row"><time>Mensajes</time><div><strong>${state.retention.messages?.eligible ?? 0} elegibles</strong><span>${state.retention.messages?.retentionMonths ?? 12} meses</span></div></div></div>` : ''}
   </div>`;
 }
@@ -1441,10 +1590,25 @@ function bindInspector() {
       renderInspectorShell();
       return;
     }
+    const outboxButton = event.target.closest('[data-outbox]');
+    if (outboxButton) {
+      void openOutbox(outboxButton.dataset.outbox);
+      return;
+    }
+    const keyButton = event.target.closest('[data-key-action]');
+    if (keyButton) {
+      void runKeyAction(keyButton.dataset.keyAction, keyButton);
+      return;
+    }
     const button = event.target.closest('[data-action]');
     if (button) inspectorAction(button.dataset.action, button);
   });
   $('#inspector-body').addEventListener('submit', async (event) => {
+    if (event.target.id === 'key-form') {
+      event.preventDefault();
+      await submitKeyForm(event.target);
+      return;
+    }
     if (event.target.id !== 'email-form') return;
     event.preventDefault();
     const email = $('#export-email').value.trim();
@@ -1457,6 +1621,67 @@ function bindInspector() {
       toast(error.message, 'error');
     }
   });
+}
+
+async function openOutbox(name) {
+  try {
+    const response = await adminFetch(`/api/admin/outbox/${encodeURIComponent(name)}`);
+    if (!response.ok) throw new Error(`No se pudo abrir el archivo (${response.status}).`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+async function refreshKeyInfo() {
+  try {
+    state.keyInfo = await api('/api/admin/key', { admin: true });
+  } catch {
+    state.keyInfo = null;
+  }
+}
+
+async function submitKeyForm(form) {
+  const value = $('#key-value', form).value.trim();
+  if (!value) return;
+  const date = $('#key-expires', form).value;
+  const expiresAt = date ? new Date(`${date}T23:59:59`).toISOString() : null;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  button.textContent = 'Validando…';
+  try {
+    await api('/api/admin/key', { method: 'POST', admin: true, body: { key: value, expiresAt } });
+    toast('Clave validada y guardada.', 'ok');
+    form.reset();
+    await Promise.all([refreshKeyInfo(), refreshHealth()]);
+    renderInspectorShell();
+  } catch (error) {
+    toast(`No se guardó la clave: ${error.message}`, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Validar y guardar';
+  }
+}
+
+async function runKeyAction(action, button) {
+  if (action !== 'test') return;
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = 'Probando…';
+  try {
+    const data = await api('/api/admin/key/test', { method: 'POST', admin: true, body: {} });
+    toast(`Clave operativa${data.models ? ` · ${data.models} modelos disponibles` : ''}.`, 'ok');
+    await Promise.all([refreshKeyInfo(), refreshHealth()]);
+    renderInspectorShell();
+  } catch (error) {
+    toast(`La clave no responde: ${error.message}`, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1741,6 +1966,7 @@ async function openQuestionPicker() {
 /* ------------------------------------------------------------------ */
 
 function openTestLab() {
+  if (state.authMode === 'on' && !isAdmin()) return;
   $('#testlab').classList.add('open');
   $('#drawer-backdrop').classList.add('show');
 }
@@ -1765,7 +1991,7 @@ function setLabStatus(text) {
 }
 
 function askAdminToken() {
-  if (state.adminToken) return Promise.resolve(true);
+  if (isAdmin()) return Promise.resolve(true);
   return new Promise((resolve) => {
     showModal({
       title: 'Token de administración',
@@ -2062,8 +2288,8 @@ function bindChat() {
   $('#sandbox-repeat').addEventListener('click', () => void repeatSandbox());
   $('#sandbox-change').addEventListener('click', () => void openQuestionPicker());
   $('#sandbox-exit').addEventListener('click', () => void exitSandbox());
-  $('#open-inspector').addEventListener('click', () => toggleInspector(true));
-  $('#btn-inspector').addEventListener('click', () => toggleInspector(true));
+  $('#open-inspector').addEventListener('click', () => toggleInspector());
+  $('#btn-inspector').addEventListener('click', () => toggleInspector());
   $('#close-inspector').addEventListener('click', closeInspector);
   window.addEventListener('resize', () => {
     if (window.innerWidth > 1280) $('#app').classList.remove('inspector-open');
@@ -2086,12 +2312,47 @@ function bindChat() {
   });
 }
 
-async function boot() {
-  applyTheme();
-  bindChat();
-  bindInspector();
-  bindLab();
-  await Promise.all([loadConfig(), refreshHealth()]);
+function renderUserChip() {
+  const chip = $('#user-chip');
+  if (!state.me || state.authMode !== 'on') {
+    chip.classList.add('hidden');
+    return;
+  }
+  chip.classList.remove('hidden');
+  const email = state.me.email || 'Cuenta autorizada';
+  $('#user-email').textContent = email;
+  $('#user-avatar').textContent = (state.me.name || email).trim().charAt(0).toUpperCase();
+  $('#user-role').textContent = state.me.isAdmin ? 'Profesional · administrador' : 'Cuenta autorizada';
+}
+
+/* The professional console and the test lab are admin-only in production.
+   In local mode we keep them visible so the admin token form is reachable. */
+function applyAdminVisibility() {
+  const hidden = state.authMode === 'on' && !isAdmin();
+  for (const selector of ['#open-inspector', '#btn-inspector', '#btn-testlab']) {
+    $(selector)?.classList.toggle('hidden', hidden);
+  }
+  if (hidden) closeInspector();
+}
+
+async function afterSignIn() {
+  if (state.started) return;
+  state.started = true;
+  try {
+    state.me = await api('/api/me', { session: false });
+  } catch (error) {
+    state.started = false;
+    if (state.authMode === 'on' && (error.status === 401 || error.status === 403)) {
+      await state.authModule?.signOut(state.auth).catch(() => {});
+      showAuthGate('Esta cuenta no está autorizada para esta entrevista.');
+      return;
+    }
+    state.me = null;
+  }
+  if (state.authMode === 'on') scopeStorage(state.me?.uid);
+  renderUserChip();
+  applyAdminVisibility();
+  await refreshHealth();
   renderChats();
   const current = localStorage.getItem(CURRENT_KEY);
   const chat = state.chats.find((c) => c.id === current);
@@ -2100,15 +2361,109 @@ async function boot() {
   } else {
     render();
   }
-  if (state.adminToken) {
+  if (isAdmin()) {
     $('#inspector-login').classList.add('hidden');
     $('#inspector-content').classList.remove('hidden');
     refreshAdmin({ quiet: true });
   }
-  setInterval(refreshHealth, 60_000);
-  setInterval(() => {
-    if (state.adminToken && $('#app').classList.contains('inspector-open')) refreshAdmin({ quiet: true });
-  }, 20_000);
+  if (!state.timers) {
+    state.timers = true;
+    setInterval(refreshHealth, 60_000);
+    setInterval(() => {
+      const app = $('#app');
+      const open = window.innerWidth <= 1280
+        ? app.classList.contains('inspector-open')
+        : !app.classList.contains('inspector-collapsed');
+      if (isAdmin() && open) refreshAdmin({ quiet: true });
+    }, 20_000);
+  }
+}
+
+async function requestKeyRenewal() {
+  const button = $('#request-key');
+  button.disabled = true;
+  try {
+    const data = await api('/api/key/request', { method: 'POST', body: {}, session: false });
+    if (data.sent) {
+      toast('Solicitud enviada. Tu profesional recibirá un correo.', 'ok');
+    } else if (data.reason === 'cooldown') {
+      const mins = Math.max(1, Math.ceil((data.retryAfterSec || 60) / 60));
+      toast(`Ya enviaste una solicitud. Intenta de nuevo en ${mins} min.`, 'warn');
+    } else if (data.reason === 'not_configured') {
+      toast('El aviso por correo no está configurado. Avisa a tu profesional por otro medio.', 'warn');
+    } else {
+      toast('No se pudo enviar la solicitud. Avisa a tu profesional por otro medio.', 'warn');
+    }
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    setTimeout(() => {
+      button.disabled = false;
+    }, 15_000);
+  }
+}
+
+function bindAuth() {
+  $('#auth-google').addEventListener('click', async () => {
+    const button = $('#auth-google');
+    button.disabled = true;
+    $('#auth-error').classList.add('hidden');
+    try {
+      const auth = state.auth || (await initFirebaseAuth());
+      state.auth = auth;
+      await state.authModule.signInWithPopup(auth, state.googleProvider);
+    } catch (error) {
+      const messages = {
+        'auth/popup-closed-by-user': '',
+        'auth/cancelled-popup-request': '',
+        'auth/unauthorized-domain': 'El dominio aún no está autorizado en Firebase Authentication.',
+        'auth/operation-not-allowed': 'El acceso con Google no está habilitado en el proyecto.',
+        'auth/popup-blocked': 'El navegador bloqueó la ventana de Google. Permite las ventanas emergentes.',
+      };
+      showAuthGate(messages[error.code] ?? `No se pudo iniciar sesión: ${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $('#user-chip').addEventListener('click', async () => {
+    if (!state.auth) return;
+    if (!window.confirm('¿Cerrar sesión en este dispositivo?')) return;
+    await state.authModule.signOut(state.auth);
+    window.location.reload();
+  });
+  $('#request-key').addEventListener('click', () => void requestKeyRenewal());
+}
+
+async function boot() {
+  applyTheme();
+  bindChat();
+  bindInspector();
+  bindLab();
+  bindAuth();
+  await loadConfig();
+  if (state.authMode !== 'on') {
+    await afterSignIn();
+    return;
+  }
+  document.body.classList.add('auth-locked');
+  try {
+    const auth = await initFirebaseAuth();
+    state.auth = auth;
+    state.authModule.onAuthStateChanged(auth, async (user) => {
+      state.firebaseUser = user;
+      if (user) {
+        hideAuthGate();
+        await afterSignIn();
+      } else {
+        state.started = false;
+        state.me = null;
+        showAuthGate();
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    showAuthGate(`No se pudo cargar el inicio de sesión: ${error.message}`);
+  }
 }
 
 boot().catch((error) => {

@@ -11,25 +11,64 @@ const num = (value, fallback) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
+const list = (value) =>
+  String(value || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
 
 export const ROOT = root;
 
 export const config = {
   version: '0.1.0',
   host: process.env.POC_HOST || '127.0.0.1',
-  port: int(process.env.POC_PORT, 3210),
+  port: int(process.env.POC_PORT || process.env.PORT, 3210),
   dataDir: process.env.POC_DATA_DIR || path.join(root, 'data'),
   publicDir: path.join(root, 'public'),
   root,
+  // "fs" for local development, "cloud" for Firestore + GCS on Cloud Run.
+  store: process.env.POC_STORE === 'cloud' ? 'cloud' : 'fs',
+  // Public origin of the deployed app, e.g. https://biohipnosis-poc-2026.web.app
+  publicOrigin: String(process.env.POC_PUBLIC_ORIGIN || '').replace(/\/$/, ''),
   adminToken: process.env.POC_ADMIN_TOKEN || 'poc-admin',
   adminTokenIsDefault: !process.env.POC_ADMIN_TOKEN,
   sessionTtlDays: 30,
   maxSessions: 200,
 
+  gcp: {
+    projectId:
+      process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.POC_GCP_PROJECT || 'biohipnosis-poc-2026',
+    bucket: process.env.POC_GCS_BUCKET || 'biohipnosis-poc-2026-data',
+    region: process.env.POC_REGION || 'us-central1',
+  },
+
+  auth: {
+    // "off" keeps the local POC usable without Firebase. "on" verifies Firebase ID tokens.
+    mode: process.env.POC_AUTH === 'on' ? 'on' : 'off',
+    allowedEmails: list(process.env.POC_ALLOWED_EMAILS),
+    adminEmails: list(process.env.POC_ADMIN_EMAILS).length
+      ? list(process.env.POC_ADMIN_EMAILS)
+      : ['cristianvelasco0312@gmail.com'],
+    allowlistDoc: 'system/allowlist',
+  },
+
+  notifications: {
+    resendApiKey: process.env.RESEND_API_KEY || '',
+    from: process.env.POC_EMAIL_FROM || 'Biohipnosis POC <onboarding@resend.dev>',
+    ownerEmail: (process.env.POC_OWNER_EMAIL || 'cristianvelasco0312@gmail.com').toLowerCase(),
+    userCooldownMs: 6 * 60 * 60 * 1000,
+    globalCooldownMs: 60 * 60 * 1000,
+  },
+
   llm: {
     mode: process.env.POC_LLM || 'opencode',
     model: process.env.POC_MODEL || 'opencode-go/glm-5.3-flash',
     fallbackModel: process.env.POC_FALLBACK_MODEL || 'opencode-go/deepseek-v4.1-flash',
+    // OpenAI-compatible inference endpoints.
+    baseUrl: (process.env.POC_LLM_BASE_URL || 'https://opencode.ai/inference/go/openai/v1').replace(/\/$/, ''),
+    modelsUrl: (process.env.POC_LLM_MODELS_URL || 'https://opencode.ai/inference/v1/models').replace(/\/$/, ''),
+    keySecret: process.env.POC_OPENCODE_SECRET || 'OPENCODE_API_KEY',
+    keyEnv: process.env.OPENCODE_API_KEY || '',
     timeoutMs: int(process.env.POC_LLM_TIMEOUT_MS, 9000),
     retryTimeoutMs: int(process.env.POC_LLM_RETRY_TIMEOUT_MS, 7000),
     maxOutputBytes: 16 * 1024,
@@ -102,8 +141,9 @@ export const config = {
       'Esta entrevista recoge datos personales y de salud para preparar tu consulta. ' +
       'Se guardan de forma confidencial y los usa únicamente tu profesional. ' +
       'Puedes pausar, pedir acceso o eliminar tus datos cuando quieras. ' +
-      'No reemplaza la atención médica. En esta prueba local, el texto se envía a un modelo ' +
-      'de lenguaje gratuito mediante OpenCode y puede salir de tu equipo. ' +
+      'No reemplaza la atención médica. En este entorno seguro, el texto se envía a un modelo ' +
+      'de lenguaje mediante OpenCode y puede salir de tu equipo; el acceso está restringido ' +
+      'a las personas autorizadas por tu profesional. ' +
       '¿Aceptas continuar?',
     privacyPath: '/privacy.html',
   },
@@ -112,6 +152,7 @@ export const config = {
 export function publicConfig() {
   return {
     version: config.version,
+    authMode: config.auth.mode,
     llm: {
       mode: config.llm.mode,
       model: config.llm.model,

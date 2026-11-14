@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from './config.js';
+import { deleteMedia, saveMedia } from './store.js';
 
 const ALLOWED = {
   'application/pdf': { ext: '.pdf', kind: 'document', magic: [[0x25, 0x50, 0x44, 0x46]] },
@@ -79,6 +80,9 @@ export function validateAttachment(input) {
 export function storeAttachment(sessionId, attachment, fileId) {
   if (!/^ses_[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error('Invalid session id');
   if (!/^fil_[A-Za-z0-9_-]+$/.test(fileId)) throw new Error('Invalid file id');
+  if (config.store === 'cloud') {
+    return saveMedia(sessionId, fileId, attachment.ext, attachment.buffer);
+  }
   const dir = path.join(config.dataDir, 'media', sessionId);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, `${fileId}${attachment.ext}`);
@@ -111,6 +115,10 @@ export function validateVoice(input) {
 
 export function removeSessionMedia(sessionId) {
   if (!/^ses_[A-Za-z0-9_-]+$/.test(sessionId)) return;
+  if (config.store === 'cloud') {
+    deleteMedia(sessionId);
+    return;
+  }
   const dir = path.join(config.dataDir, 'media', sessionId);
   fs.rmSync(dir, { recursive: true, force: true });
 }

@@ -26,7 +26,7 @@
       <a class="text-btn back" href="/">← Volver a la entrevista</a>
       <div class="legal-card">
         <h1>Política de privacidad</h1>
-        <p class="legal-sub">Prueba de concepto local · versión 1.0 · vigente para esta demostración</p>
+        <p class="legal-sub">Prueba de concepto alojada en Google Cloud · versión 2.0 · vigente para esta demostración</p>
 
         <div class="legal-warning">
           <strong>Esto es una POC, no un servicio clínico en producción.</strong> No uses datos reales de salud. La
@@ -35,9 +35,14 @@
 
         <h2>1. Quién trata tus datos</h2>
         <p>
-          En esta demostración, el responsable es el equipo que ejecuta la POC en su equipo local. No hay un servidor
-          remoto de Biohipnosis: la aplicación escucha solo en <code>127.0.0.1</code> y guarda los datos en el disco de
-          quien la ejecuta.
+          En esta demostración, el responsable es el equipo de Biohipnosis Sistémica que opera la POC. La aplicación se
+          aloja en Google Cloud (Firebase Hosting y Cloud Run, región <code>us-central1</code>) y guarda los datos
+          cifrados en Firestore y Cloud Storage. El acceso está restringido a las cuentas de Google autorizadas por el
+          profesional; no es un servicio abierto al público.
+        </p>
+        <p>
+          El tratamiento de datos personales se realiza bajo la responsabilidad del profesional autorizado. Google
+          Cloud actúa como encargado del tratamiento de la infraestructura.
         </p>
 
         <h2>2. Qué datos se recogen</h2>
@@ -65,10 +70,11 @@
 
         <h2>5. Modelo de lenguaje y transferencia</h2>
         <p>
-          Para analizar tus respuestas, el texto se envía a un modelo gratuito ejecutado mediante OpenCode en tu propio
-          equipo. El proveedor del modelo puede procesar el texto fuera del equipo según sus términos. En esta POC se
-          usan modelos gratuitos y el sistema recurre a reglas locales si el proveedor falla o alcanza su límite. No
-          envíes datos reales de salud en esta demostración.
+          Para analizar tus respuestas, el texto se envía mediante HTTPS al servicio de inferencia de OpenCode, que
+          ejecuta el modelo de lenguaje contratado por el profesional. El proveedor puede procesar el texto en sus
+          servidores según sus propios términos. Solo se envía el texto necesario para el análisis; no se envían
+          archivos ni credenciales. Si el proveedor falla, alcanza su límite o la clave no está disponible, el sistema
+          recurre a reglas locales y la entrevista continúa. No envíes datos reales de salud en esta demostración.
         </p>
 
         <h2>6. Conservación</h2>
@@ -89,8 +95,10 @@
 
         <h2>8. Seguridad</h2>
         <ul>
-          <li>Cifrado AES-256-GCM de cada sesión en reposo; clave local con permisos 0600.</li>
-          <li>Acceso del profesional con token y bloqueo tras intentos fallidos.</li>
+          <li>HTTPS en todo el tráfico entre el navegador, Firebase Hosting y Cloud Run.</li>
+          <li>Cifrado AES-256-GCM de cada sesión en reposo; la clave maestra vive en Secret Manager.</li>
+          <li>Acceso con identidad de Google (Firebase Authentication) y lista blanca de correos; el servidor vuelve a validar el token en cada petición.</li>
+          <li>Separación por usuario: cada sesión pertenece a la cuenta que la creó; el administrador puede ver todas.</li>
           <li>Límites de tasa, detección de spam, idempotencia y validación de adjuntos.</li>
           <li>Bloqueo determinista de inyección de prompt, solicitudes de diagnóstico y acceso a otras sesiones.</li>
           <li>Auditoría con cadena de hashes y enmascaramiento de PII en la vista por defecto.</li>
@@ -108,8 +116,10 @@
 
         <h2>10. Contacto</h2>
         <p>
-          Para esta POC, el contacto es el profesional que ejecuta la demostración. En producción se debe publicar un
-          correo de privacidad y un canal de atención de derechos.
+          Para ejercer tus derechos o resolver dudas sobre esta POC, escribe a
+          <a href="mailto:cristianvelasco0312@gmail.com">cristianvelasco0312@gmail.com</a>. En producción se debe
+          publicar además un canal formal de atención de derechos y el acuerdo de tratamiento de datos con los
+          proveedores.
         </p>
 
         <p class="legal-sub" style="margin-top: 26px">Versión de consentimiento: <code>poc-consent-1.0</code></p>

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local-only proof of concept of the Biohipnosis systemic initial-interview WhatsApp chatbot.",
+  "description": "Proof of concept of the Biohipnosis systemic initial-interview WhatsApp chatbot, deployable on Firebase + Cloud Run.",
   "engines": {
     "node": ">=20.11"
   },
@@ -12,6 +12,12 @@
     "dev": "node --watch server/index.js",
     "test": "node --test tests/unit/*.test.js tests/integration/*.test.js",
     "security": "node --test tests/security/*.test.js",
-    "smoke": "node tests/smoke.mjs"
+    "smoke": "node tests/smoke.mjs",
+    "allowlist": "node scripts/set-allowlist.mjs"
+  },
+  "dependencies": {
+    "@google-cloud/secret-manager": "^8.0.0",
+    "@google-cloud/storage": "^9.0.0",
+    "firebase-admin": "^14.5.1"
   }
 }

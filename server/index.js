@@ -20,7 +20,7 @@ import {
   publicSession,
   sessionEraseOnReply,
 } from './engine.js';
-import { createSession, deleteSession, getMetrics, getSession, init as initStore, listSessions, readAudit, retentionReport, saveSession, verifyAudit } from './store.js';
+import { createSession, deleteSession, flush as flushStore, getMetrics, getSession, init as initStore, listSessions, readAudit, ready as storeReady, retentionReport, saveSession, verifyAudit } from './store.js';
 import { createTestSession, deleteTestSession, getTestSession } from './sandbox.js';
 import { SECTIONS, sectionItems } from './catalog.js';
 import { appendAudit, dailySpend, listOutbox, logSecurity, readOutboxFile } from './store.js';
@@ -31,6 +31,9 @@ import { createSimulatedEmail, exportHtml, exportJson } from './export.js';
 import { removeSessionMedia } from './media.js';
 import { runSecuritySuite } from './securitySuite.js';
 import { randomId, timingSafeEqual } from './crypto.js';
+import { authStatus, initAuth, verifyRequest } from './auth.js';
+import { expiryWarning, getKey, initKeyManager, keyInfo, keyReady, markInvalid, markValid, setKey, validateKey } from './keyManager.js';
+import { notificationsEnabled, requestKeyRenewal } from './notify.js';
 
 const startedAt = Date.now();
 const locks = new Map();
@@ -58,8 +61,14 @@ function securityHeaders(res) {
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-      "font-src 'self'; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; " +
+    "default-src 'self'; " +
+      "script-src 'self' https://www.gstatic.com https://apis.google.com; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "img-src 'self' data: https://*.googleusercontent.com; " +
+      "font-src 'self' https://fonts.gstatic.com; " +
+      "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com; " +
+      "frame-src 'self' https://accounts.google.com https://biohipnosis-poc-2026.firebaseapp.com; " +
+      "media-src 'self' blob:; object-src 'none'; base-uri 'self'; " +
       "form-action 'self'; frame-ancestors 'none'",
   );
 }
@@ -79,11 +88,26 @@ function sendError(res, status, code, message, extra = {}) {
   sendJson(res, status, { error: code, message, requestId: randomId('req_', 5) }, extra);
 }
 
+function requestHost(req) {
+  return String(req.headers['x-forwarded-host'] || req.headers.host || '')
+    .split(',')[0]
+    .trim();
+}
+
 function sameOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return true;
-  const host = req.headers.host;
-  return origin === `http://${host}` || origin === `https://${host}`;
+  const host = requestHost(req);
+  const allowed = [`http://${host}`, `https://${host}`];
+  if (config.publicOrigin) allowed.push(config.publicOrigin);
+  return allowed.includes(origin);
+}
+
+function clientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '')
+    .split(',')[0]
+    .trim();
+  return forwarded || req.socket.remoteAddress || 'local';
 }
 
 function readBody(req, limit) {
@@ -129,7 +153,12 @@ function adminToken(req, url) {
 }
 
 function requireAdmin(req, res, url) {
-  const ip = req.socket.remoteAddress || 'local';
+  if (config.auth.mode === 'on') {
+    if (req.user?.isAdmin) return true;
+    sendError(res, 403, 'forbidden', 'Solo el propietario puede acceder a esta consola.');
+    return false;
+  }
+  const ip = clientIp(req);
   const gate = checkAdmin(ip, Date.now());
   if (!gate.allowed) {
     sendError(res, 429, 'admin_locked', 'Demasiados intentos. Espera antes de volver a intentar.', {
@@ -159,6 +188,16 @@ function requireSession(req, res, sessionId) {
   const session = getSession(sessionId);
   if (!session) {
     sendError(res, 404, 'not_found', 'Sesión no encontrada.');
+    return null;
+  }
+  if (
+    config.auth.mode === 'on' &&
+    session.ownerUid &&
+    req.user &&
+    !req.user.isAdmin &&
+    session.ownerUid !== req.user.uid
+  ) {
+    sendError(res, 403, 'forbidden', 'Esta sesión pertenece a otra cuenta.');
     return null;
   }
   if (!timingSafeEqual(token, session.clientToken)) {
@@ -196,7 +235,14 @@ function safeName(value) {
 async function api(req, res, url) {
   const { pathname } = url;
   const method = req.method;
-  const ip = req.socket.remoteAddress || 'local';
+  const ip = clientIp(req);
+
+  // Only the health probe and the public config are reachable without a
+  // Firebase session. Everything else runs with req.user set.
+  const isPublic = method === 'GET' && (pathname === '/api/health' || pathname === '/api/config');
+  if (!isPublic) {
+    req.user = await verifyRequest(req);
+  }
 
   if (method === 'GET' && pathname === '/api/health') {
     const llm = getStatus();
@@ -207,6 +253,7 @@ async function api(req, res, url) {
       llm,
       queue: llmQueueDepth(),
       adminTokenDefault: config.adminTokenIsDefault,
+      authMode: config.auth.mode,
       surveyVersion: catalogSummary().version,
       totalItems: catalogSummary().total,
     });
@@ -215,6 +262,40 @@ async function api(req, res, url) {
 
   if (method === 'GET' && pathname === '/api/config') {
     sendJson(res, 200, { ...publicConfig(), catalog: catalogSummary() });
+    return;
+  }
+
+  if (method === 'GET' && pathname === '/api/me') {
+    sendJson(res, 200, {
+      uid: req.user.uid,
+      email: req.user.email,
+      name: req.user.name,
+      picture: req.user.picture,
+      isAdmin: !!req.user.isAdmin,
+      dev: !!req.user.dev,
+      authMode: config.auth.mode,
+      notificationsEnabled: notificationsEnabled(),
+      key: keyInfo(),
+      keyWarning: expiryWarning(),
+    });
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/key/request') {
+    const body = await readJson(req);
+    const result = await requestKeyRenewal({
+      user: req.user,
+      reason: String(body.reason || keyInfo().state || 'key_invalid').slice(0, 120),
+    });
+    appendAudit({
+      type: 'key.renewal_requested',
+      actor: req.user.email,
+      action: 'request',
+      entity: 'llm',
+      entityId: 'opencode',
+      payload: { sent: !!result.sent, reason: result.reason || 'requested' },
+    });
+    sendJson(res, result.sent ? 202 : 200, result);
     return;
   }
 
@@ -259,6 +340,8 @@ async function api(req, res, url) {
       phone = p.normalized;
     }
     const session = createSession({ name, phoneE164: phone });
+    session.ownerUid = req.user.uid;
+    session.ownerEmail = req.user.email;
     createSessionReply(session);
     saveSession(session);
     appendAudit({
@@ -443,6 +526,63 @@ async function api(req, res, url) {
   // Admin routes
   if (pathname.startsWith('/api/admin/')) {
     if (!requireAdmin(req, res, url)) return;
+
+    if (method === 'GET' && pathname === '/api/admin/key') {
+      sendJson(res, 200, {
+        key: keyInfo(),
+        warning: expiryWarning(),
+        notificationsEnabled: notificationsEnabled(),
+        modelsUrl: config.llm.modelsUrl,
+      });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/admin/key') {
+      const body = await readJson(req);
+      try {
+        const result = await setKey(body.key, {
+          expiresAt: body.expiresAt || null,
+          actor: req.user?.email || 'owner',
+        });
+        appendAudit({
+          type: 'key.rotated',
+          actor: req.user?.email || 'owner',
+          action: 'rotate',
+          entity: 'llm',
+          entityId: 'opencode',
+          payload: { fingerprint: result.fingerprint, expiresAt: result.expiresAt, version: result.versionName },
+        });
+        sendJson(res, 200, { ok: true, key: result });
+      } catch (err) {
+        appendAudit({
+          type: 'key.rotation_failed',
+          actor: req.user?.email || 'owner',
+          action: 'rotate',
+          entity: 'llm',
+          entityId: 'opencode',
+          payload: { error: String(err.message).slice(0, 200) },
+        });
+        sendError(res, err.statusCode || 400, err.code || 'invalid_key', err.message);
+      }
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/admin/key/test') {
+      try {
+        const key = await getKey();
+        const models = await validateKey(key);
+        markValid();
+        sendJson(res, 200, {
+          ok: true,
+          key: keyInfo(),
+          models: Array.isArray(models?.data) ? models.data.length : null,
+        });
+      } catch (err) {
+        markInvalid(err.message);
+        sendError(res, err.statusCode || 502, err.code || 'key_invalid', err.message);
+      }
+      return;
+    }
 
     if (method === 'GET' && pathname === '/api/admin/sessions') {
       sendJson(res, 200, {
@@ -784,6 +924,7 @@ async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
   try {
     if (url.pathname.startsWith('/api/')) {
+      await Promise.all([storeReady(), keyReady()]);
       await api(req, res, url);
     } else {
       serveStatic(req, res, url.pathname);
@@ -793,12 +934,20 @@ async function handler(req, res) {
     if (status >= 500) {
       logSecurity({ actor: 'system', action: 'server_error', payload: { message: err.message } });
     }
+    const code = /^[a-z][a-z0-9_]*$/.test(String(err.code || ''))
+      ? err.code
+      : status === 500
+        ? 'internal_error'
+        : 'bad_request';
     if (!res.headersSent) {
-      sendError(res, status, status === 500 ? 'internal_error' : 'bad_request', status === 500 ? 'Error interno.' : err.message);
+      sendError(res, status, code, status === 500 ? 'Error interno.' : err.message);
     } else {
       res.end();
     }
   } finally {
+    if (url.pathname.startsWith('/api/')) {
+      await flushStore().catch((err) => console.error(`[store] flush failed: ${err.message}`));
+    }
     const elapsed = Date.now() - started;
     console.log(`${req.method} ${url.pathname} ${res.statusCode} ${elapsed}ms`);
   }
@@ -843,12 +992,16 @@ function serveStatic(req, res, pathname) {
 }
 
 export function createServer() {
+  initAuth();
   initStore();
+  void initKeyManager();
   return http.createServer(handler);
 }
 
 export async function startServer() {
+  initAuth();
   initStore();
+  await initKeyManager().catch(() => {});
   const server = http.createServer(handler);
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -860,8 +1013,11 @@ export async function startServer() {
   if (!status.available) {
     console.log(`LLM no disponible ahora: ${status.lastError || 'proveedor no disponible'}. Se usará fallback determinista.`);
   }
-  if (config.adminTokenIsDefault) {
+  if (config.adminTokenIsDefault && config.auth.mode !== 'on') {
     console.log(`Token admin de demo: ${config.adminToken} (cámbialo con POC_ADMIN_TOKEN).`);
+  }
+  if (config.auth.mode === 'on') {
+    console.log(`Acceso con Google activo. Correos autorizados: ${config.auth.allowedEmails.length || 'allowlist de Firestore'}.`);
   }
   return server;
 }

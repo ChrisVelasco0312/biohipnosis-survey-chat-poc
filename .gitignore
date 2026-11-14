@@ -1,6 +1,21 @@
 node_modules/
+functions/node_modules/
+
+# Local data and secrets
 data/
 .env
+.env.*
+!.env.example
+*.local
+*.pem
+firebase-adminsdk*.json
+serviceAccount*.json
+*-service-account.json
+credentials*.json
+
+# Build and tooling caches
+.firebase/
+.firebaserc.local
 *.log
 .DS_Store
 test-results/
@@ -8,3 +23,4 @@ playwright-report/
 e2e/.data/
 e2e/artifacts/
 .opencode/
+coverage/

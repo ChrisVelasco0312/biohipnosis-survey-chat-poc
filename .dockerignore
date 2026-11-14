@@ -1,0 +1,10 @@
+node_modules
+data
+e2e
+tests
+docs
+.opencode
+.git
+*.log
+test-results
+playwright-report
