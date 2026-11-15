@@ -732,6 +732,39 @@ function scrollChat(force = false) {
   if (force || nearBottom) body.scrollTop = body.scrollHeight;
 }
 
+/* Mobile browsers do not resize the layout viewport when the on-screen
+   keyboard opens (iOS Safari overlays it). We follow visualViewport so the
+   composer stays above the keyboard instead of being covered. */
+let viewportFrame = 0;
+
+function syncViewportHeight() {
+  cancelAnimationFrame(viewportFrame);
+  viewportFrame = requestAnimationFrame(() => {
+    const height = Math.round(window.visualViewport?.height || window.innerHeight);
+    document.documentElement.style.setProperty('--app-height', `${height}px`);
+    if (document.activeElement?.id === 'message-input') scrollChat(true);
+  });
+}
+
+function bindViewport() {
+  syncViewportHeight();
+  window.addEventListener('resize', syncViewportHeight);
+  window.addEventListener('orientationchange', () => {
+    setTimeout(syncViewportHeight, 300);
+    setTimeout(syncViewportHeight, 700);
+  });
+  window.visualViewport?.addEventListener('resize', syncViewportHeight);
+  window.visualViewport?.addEventListener('scroll', syncViewportHeight);
+  const input = $('#message-input');
+  input.addEventListener('focus', () => {
+    setTimeout(() => {
+      syncViewportHeight();
+      scrollChat(true);
+    }, 280);
+  });
+  input.addEventListener('blur', () => setTimeout(syncViewportHeight, 280));
+}
+
 function renderSandboxBar() {
   const session = state.session;
   const bar = $('#sandbox-bar');
@@ -2449,6 +2482,7 @@ function bindAuth() {
 async function boot() {
   applyTheme();
   bindChat();
+  bindViewport();
   bindInspector();
   bindLab();
   bindAuth();
