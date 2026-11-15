@@ -66,7 +66,9 @@ const state = {
   outbox: [],
   retention: null,
   suite: null,
-  tab: 'overview',
+  tab: 'testers',
+  testerFilter: null,
+  transcriptQuery: '',
   reveal: false,
   selectedItem: null,
   busy: false,
@@ -1087,7 +1089,7 @@ function renderInspectorShell() {
   const currentId = state.adminSession?.id || state.session?.id;
   const options = state.adminSessions.map(
     (session) =>
-      `<option value="${esc(session.id)}"${session.id === currentId ? ' selected' : ''}>${esc(session.maskedName || session.id)} · ${esc(statusLabel(session.status))}</option>`,
+      `<option value="${esc(session.id)}"${session.id === currentId ? ' selected' : ''}>${esc(session.ownerEmail || 'Sin cuenta')} · ${esc(session.maskedName || session.id)} · ${esc(statusLabel(session.status))}</option>`,
   );
   if (currentId && !state.adminSessions.some((s) => s.id === currentId)) {
     options.unshift(`<option value="${esc(currentId)}" selected>${esc(currentId)}</option>`);
@@ -1111,7 +1113,7 @@ async function refreshAdmin({ quiet = false } = {}) {
       renderModelLine();
     }
     const id = state.adminSession?.id || state.session?.id || state.adminSessions[0]?.id;
-    if (id) await loadAdminSession(id);
+    if (id) await loadAdminSession(id, { preserve: quiet });
     renderInspectorShell();
   } catch (error) {
     if ((error.status === 401 || error.status === 403) && state.authMode !== 'on') {
@@ -1125,13 +1127,16 @@ async function refreshAdmin({ quiet = false } = {}) {
   }
 }
 
-async function loadAdminSession(id) {
+async function loadAdminSession(id, { preserve = false } = {}) {
   const data = await api(`/api/admin/sessions/${encodeURIComponent(id)}`, { admin: true });
   state.adminSession = data.session;
   state.adminAudit = data.audit || [];
   state.adminRate = data.rate || null;
-  state.reveal = false;
-  state.selectedItem = null;
+  state.reveal = true;
+  if (!preserve) {
+    state.selectedItem = null;
+    state.transcriptQuery = '';
+  }
 }
 
 async function loadAdminTabData(tab) {
@@ -1173,6 +1178,11 @@ function renderInspectorBody() {
     body.innerHTML = '';
     return;
   }
+  const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
+  if (state.tab === 'testers') {
+    body.innerHTML = renderTestersTab();
+    return;
+  }
   if (state.tab === 'key') {
     body.innerHTML = renderKeyTab();
     return;
@@ -1183,6 +1193,11 @@ function renderInspectorBody() {
   }
   const session = state.adminSession;
   switch (state.tab) {
+    case 'conversation':
+      body.innerHTML = renderConversationTab(session);
+      applyTranscriptFilter();
+      if (!state.selectedItem && nearBottom) body.scrollTop = body.scrollHeight;
+      break;
     case 'answers':
       body.innerHTML = renderAnswersTab(session);
       break;
@@ -1202,6 +1217,13 @@ function renderInspectorBody() {
     default:
       body.innerHTML = renderOverviewTab(session);
   }
+}
+
+function applyTranscriptFilter() {
+  const query = String(state.transcriptQuery || '').trim().toLowerCase();
+  $$('.transcript-row', $('#inspector-body')).forEach((row) => {
+    row.classList.toggle('hidden', !!query && !String(row.dataset.search || '').includes(query));
+  });
 }
 
 function renderKeyTab() {
@@ -1246,6 +1268,100 @@ function renderKeyTab() {
   </div>`;
 }
 
+function testerGroups() {
+  const groups = new Map();
+  for (const session of state.adminSessions || []) {
+    const email = session.ownerEmail || 'Sin cuenta';
+    if (!groups.has(email)) groups.set(email, []);
+    groups.get(email).push(session);
+  }
+  return [...groups.entries()]
+    .map(([email, sessions]) => {
+      sessions.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+      return { email, sessions, latest: sessions[0] };
+    })
+    .sort((a, b) => String(b.latest.updatedAt || '').localeCompare(String(a.latest.updatedAt || '')));
+}
+
+function renderTestersTab() {
+  const groups = testerGroups();
+  if (!groups.length) {
+    return '<div class="inspector-section"><h3>Actividad de testers</h3><p class="muted">Todavía no hay sesiones creadas.</p></div>';
+  }
+  const filtered = state.testerFilter ? groups.filter((group) => group.email === state.testerFilter) : groups;
+  const totalSessions = groups.reduce((sum, group) => sum + group.sessions.length, 0);
+  const header = `<div class="session-headline">
+    <div><h3>Actividad de testers</h3><p>${groups.length} cuenta(s) · ${totalSessions} sesión(es)</p></div>
+    ${state.testerFilter ? '<button class="text-btn" type="button" data-tester="">Ver todos</button>' : ''}
+  </div>`;
+  const cards = filtered
+    .map((group) => {
+      const latest = group.latest;
+      return `<div class="tester-card">
+        <button class="tester-head" type="button" data-tester="${esc(group.email)}">
+          <span class="tester-email">${esc(group.email)}</span>
+          <span class="tester-meta">${group.sessions.length} sesión(es) · última actividad ${esc(relativeTime(latest.updatedAt))}</span>
+        </button>
+        <div class="tester-stats">
+          ${pill(latest.status)}
+          <span>${latest.progress?.answered ?? 0}/${latest.progress?.total ?? 41} respondidas</span>
+          <span>Riesgo ${esc(latest.riskLevel || 'none')}</span>
+          <span>${formatMoney(latest.costUsd)}</span>
+        </div>
+        <div class="tester-sessions">
+          ${group.sessions
+            .slice(0, 8)
+            .map(
+              (session) => `<button class="tester-session${session.id === state.adminSession?.id ? ' active' : ''}" type="button" data-session-pick="${esc(session.id)}" data-tester-email="${esc(group.email)}">
+                <span>${esc(session.maskedName || session.id)}</span>
+                <span>${esc(statusLabel(session.status))} · ${session.progress?.answered ?? 0}/${session.progress?.total ?? 41} · ${esc(relativeTime(session.updatedAt))}</span>
+              </button>`,
+            )
+            .join('')}
+        </div>
+      </div>`;
+    })
+    .join('');
+  return `<div class="inspector-section">${header}<div class="tester-list">${cards}</div></div>`;
+}
+
+function transcriptRow(message) {
+  const itemId = message.meta?.itemId || '';
+  const kind = message.meta?.kind || '';
+  const attachment = message.meta?.attachment;
+  const rejected = message.meta?.rejectedAttachment;
+  const search = `${message.text || ''} ${itemId} ${kind} ${attachment?.name || ''} ${rejected || ''}`.toLowerCase();
+  const highlighted = itemId && itemId === state.selectedItem ? ' highlight' : '';
+  return `<div class="transcript-row ${message.direction === 'in' ? 'in' : 'out'}${highlighted}" data-message-id="${esc(message.id)}"${itemId ? ` data-transcript-item="${esc(itemId)}"` : ''} data-search="${esc(search)}">
+    <div class="transcript-bubble">
+      <div class="transcript-meta">
+        <strong>${message.direction === 'in' ? 'Tester' : 'Asistente'}</strong>
+        <time>${esc(formatTime(message.at))}</time>
+        ${kind ? `<span>${esc(kind)}</span>` : ''}
+        ${itemId ? `<span>${esc(itemId)}</span>` : ''}
+      </div>
+      <p>${message.text ? nl2br(message.text) : '<em>Sin texto</em>'}</p>
+      ${attachment ? `<div class="transcript-attachment">Adjunto: ${esc(attachment.name || 'archivo')}${Number.isFinite(Number(attachment.bytes)) ? ` · ${esc(formatBytes(attachment.bytes))}` : ''}</div>` : ''}
+      ${rejected ? `<div class="transcript-attachment">Archivo rechazado: ${esc(rejected)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderConversationTab(session) {
+  const messages = session.messages || [];
+  return `<div class="inspector-section">
+    <div class="session-headline">
+      <div><h3>${esc(session.name || 'Sin nombre')}</h3><p>${esc(session.ownerEmail || 'Sin cuenta')} · ${esc(session.id)}</p></div>
+      ${pill(session.status)}
+    </div>
+    <p class="muted">Vista completa para depuración. ${messages.length} mensaje(s) · última actividad ${esc(relativeTime(session.updatedAt))}.</p>
+    <div class="transcript-toolbar">
+      <input id="transcript-search" type="search" placeholder="Buscar por texto, pregunta o adjunto…" value="${esc(state.transcriptQuery || '')}" autocomplete="off" />
+    </div>
+    <div class="transcript-list">${messages.map(transcriptRow).join('') || '<p class="muted">Sin mensajes.</p>'}</div>
+  </div>`;
+}
+
 function renderOverviewTab(session) {
   const budget = session.budget || {};
   const pct = Math.min(100, Math.round((Number(budget.spentUsd || 0) / Math.max(0.0001, Number(budget.limitUsd || 0.15))) * 100));
@@ -1255,7 +1371,6 @@ function renderOverviewTab(session) {
       <div><h3>${esc(session.name || 'Sin nombre')}</h3><p>${esc(session.id)}</p></div>
       ${pill(session.status)}
     </div>
-    ${!state.reveal ? '<div class="protected-banner"><strong>Datos protegidos</strong><span>Los mensajes y valores personales están enmascarados. Revela solo si es necesario; el acceso queda auditado.</span><button class="text-btn" data-action="reveal">Revelar PII</button></div>' : '<div class="protected-banner reveal"><strong>PII visible</strong><span>Esta vista contiene datos sensibles. No compartas la pantalla.</span><button class="text-btn" data-action="hide-pii">Ocultar PII</button></div>'}
     <div class="metrics-grid">
       ${metricCard('Progreso', `${session.progress?.answered ?? 0}/${session.progress?.total ?? 41}`, `${session.progress?.partial ?? 0} parciales`)}
       ${metricCard('Sección', session.currentSectionId ? sectionName(session.currentSectionId) : '—')}
@@ -1266,6 +1381,7 @@ function renderOverviewTab(session) {
     </div>
     <div class="budget-line"><div class="budget-bar"><i style="width:${pct}%"></i></div><span>${pct}% del presupuesto</span></div>
     <dl class="profile-grid">
+      <div><span>Cuenta tester</span><strong>${esc(session.ownerEmail || 'Sin cuenta')}</strong></div>
       <div><span>Edad confirmada</span><strong>${session.ageConfirmed ? 'Sí, 18+' : 'Pendiente'}</strong></div>
       <div><span>Consentimiento</span><strong>${consent ? `${esc(consent.version)} · ${esc(formatDate(consent.grantedAt))}` : 'No registrado'}</strong></div>
       <div><span>Correo destino</span><strong>${esc(session.destinationEmail || '—')}</strong></div>
@@ -1307,7 +1423,7 @@ function renderAnswersTab(session) {
       <h4>${esc(item.id)} · ${esc(item.label)}</h4>
       <p>${esc(ITEM_STATUS_LABELS[entry.status] || entry.status)}${entry.score !== undefined ? ` · puntaje ${Number(entry.score).toFixed(2)}` : ''}${entry.attempts ? ` · ${entry.attempts} intento(s)` : ''}</p>
       <dl>
-        <dt>Respuesta</dt><dd>${value ? nl2br(value) : '<em>Protegida o sin respuesta</em>'}</dd>
+        <dt>Respuesta</dt><dd>${value ? nl2br(value) : '<em>Sin respuesta</em>'}</dd>
         <dt>Normalizada</dt><dd>${entry.normalized ? esc(JSON.stringify(entry.normalized)) : '—'}</dd>
         <dt>Extraída</dt><dd>${entry.extracted ? esc(JSON.stringify(entry.extracted)) : '—'}</dd>
         <dt>Validación</dt><dd>${entry.validation ? esc(JSON.stringify(entry.validation)) : '—'}</dd>
@@ -1386,12 +1502,11 @@ function renderCostsTab(session) {
 function renderExportTab(session) {
   return `<div class="inspector-section">
     <h3>Exportar</h3>
-    <p class="muted">El JSON contiene datos enmascarados o completos según el estado de revelación. El HTML está listo para imprimir.</p>
+    <p class="muted">El JSON y el HTML incluyen la conversación completa para revisión. El HTML está listo para imprimir.</p>
     <div class="action-row">
       <button class="primary-btn" data-action="download" data-format="json">Descargar JSON</button>
       <button class="ghost-btn" data-action="download" data-format="html">Descargar HTML</button>
       <button class="ghost-btn" data-action="print">Imprimir / PDF</button>
-      <button class="ghost-btn" data-action="reveal">${state.reveal ? 'Ocultar PII' : 'Revelar PII'}</button>
     </div>
     <form class="modal-form" id="email-form">
       <label>Enviar resumen simulado a<input id="export-email" type="email" value="${esc(session.destinationEmail && !session.destinationEmail.includes('•') ? session.destinationEmail : '')}" placeholder="paciente@ejemplo.com" /></label>
@@ -1489,13 +1604,15 @@ async function inspectorAction(action, button) {
       return;
     }
     if (action === 'focus-item') {
-      const message = [...(state.session?.messages || [])].reverse().find((m) => m.meta?.itemId === button.dataset.item);
-      if (message) {
-        const node = $(`[data-message-id="${CSS.escape(message.id)}"]`);
+      state.tab = 'conversation';
+      state.selectedItem = button.dataset.item;
+      renderInspectorShell();
+      requestAnimationFrame(() => {
+        const node = $(`[data-transcript-item="${CSS.escape(button.dataset.item)}"]`);
         node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         node?.classList.add('flash');
-        setTimeout(() => node?.classList.remove('flash'), 1500);
-      }
+        setTimeout(() => node?.classList.remove('flash'), 1600);
+      });
       return;
     }
     if (action === 'download') {
@@ -1617,12 +1734,40 @@ function bindInspector() {
     }
   });
   $('#inspector-refresh').addEventListener('click', () => refreshAdmin());
-  $('#inspector-body').addEventListener('click', (event) => {
+  $('#inspector-body').addEventListener('click', async (event) => {
     const cell = event.target.closest('[data-item]');
     if (cell && !event.target.closest('[data-action]')) {
       state.selectedItem = cell.dataset.item;
       if (state.tab !== 'answers') state.tab = 'answers';
       renderInspectorShell();
+      return;
+    }
+    const testerButton = event.target.closest('[data-session-pick], [data-tester]');
+    if (testerButton) {
+      try {
+        const sessionId = testerButton.dataset.sessionPick;
+        if (sessionId) {
+          state.testerFilter = testerButton.dataset.testerEmail || state.testerFilter;
+          await loadAdminSession(sessionId);
+          state.tab = 'conversation';
+          renderInspectorShell();
+          return;
+        }
+        const email = testerButton.dataset.tester;
+        state.testerFilter = email || null;
+        if (email) {
+          const group = testerGroups().find((item) => item.email === email);
+          if (group?.latest) {
+            await loadAdminSession(group.latest.id);
+            state.tab = 'conversation';
+            renderInspectorShell();
+            return;
+          }
+        }
+        renderInspectorShell();
+      } catch (error) {
+        toast(error.message, 'error');
+      }
       return;
     }
     const outboxButton = event.target.closest('[data-outbox]');
@@ -1637,6 +1782,11 @@ function bindInspector() {
     }
     const button = event.target.closest('[data-action]');
     if (button) inspectorAction(button.dataset.action, button);
+  });
+  $('#inspector-body').addEventListener('input', (event) => {
+    if (event.target.id !== 'transcript-search') return;
+    state.transcriptQuery = event.target.value;
+    applyTranscriptFilter();
   });
   $('#inspector-body').addEventListener('submit', async (event) => {
     if (event.target.id === 'key-form') {
@@ -2420,7 +2570,7 @@ async function afterSignIn() {
         ? app.classList.contains('inspector-open')
         : !app.classList.contains('inspector-collapsed');
       if (isAdmin() && open) refreshAdmin({ quiet: true });
-    }, 20_000);
+    }, 10_000);
   }
 }
 

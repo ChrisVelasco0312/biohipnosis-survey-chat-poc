@@ -1824,6 +1824,8 @@ export function beginTestSession(session, { reset = false, itemId, sectionId } =
 export function publicSession(session, { reveal = true } = {}) {
   return {
     id: session.id,
+    ownerEmail: session.ownerEmail || null,
+    ownerUid: session.ownerUid || null,
     name: reveal ? session.name : firstName(session.name),
     phone: reveal ? session.phoneE164 : maskPhone(session.phoneE164),
     status: session.status,

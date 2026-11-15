@@ -676,7 +676,7 @@ async function api(req, res, url) {
       }
       if (method === 'GET') {
         sendJson(res, 200, {
-          session: inspectorSession(session, { reveal: false }),
+          session: inspectorSession(session, { reveal: true }),
           audit: readAudit(500).filter((e) => e.entityId === sessionId),
           rate: getSessionState(sessionId),
         });
@@ -739,7 +739,7 @@ async function api(req, res, url) {
         entityId: session.id,
         payload: { ...session.flags },
       });
-      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: false }) });
+      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: true }) });
       return;
     }
 
@@ -803,7 +803,7 @@ async function api(req, res, url) {
         return;
       }
       saveSession(session);
-      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: false }) });
+      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: true }) });
       return;
     }
 
@@ -821,7 +821,7 @@ async function api(req, res, url) {
         return;
       }
       adminTimeTravel(session, hours);
-      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: false }) });
+      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: true }) });
       return;
     }
 
@@ -837,7 +837,7 @@ async function api(req, res, url) {
         sendError(res, 409, 'not_paused', 'La sesión debe estar en pausa para enviar el recordatorio.');
         return;
       }
-      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: false }) });
+      sendJson(res, 200, { ok: true, session: inspectorSession(getSession(session.id), { reveal: true }) });
       return;
     }
 
