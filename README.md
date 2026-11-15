@@ -71,7 +71,8 @@ OPENCODE_API_KEY='sk-...' POC_LLM=opencode npm start
 
 En local la autenticación con Google está desactivada (`POC_AUTH=off`) y la
 consola usa el token de administración. En producción se activa con
-`POC_AUTH=on`; ver [`docs/DEPLOY.md`](docs/DEPLOY.md).
+`POC_AUTH=on`; ver la guía rápida [`DEPLOY.md`](DEPLOY.md) y el runbook
+detallado [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 El token de administración de demo es `poc-admin`. Cámbialo:
 
