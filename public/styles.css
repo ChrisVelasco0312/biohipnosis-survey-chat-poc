@@ -164,6 +164,25 @@ svg {
   border-bottom: 1px solid var(--line);
 }
 
+.sidebar-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-head .sidebar-close {
+  display: none;
+}
+
+.mobile-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: rgba(8, 20, 24, 0.38);
+  backdrop-filter: blur(1px);
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -2295,6 +2314,10 @@ svg {
     transform: translateX(0);
   }
 
+  .app.inspector-open ~ .mobile-backdrop {
+    display: block;
+  }
+
   .app.inspector-collapsed .inspector {
     display: flex;
   }
@@ -2331,6 +2354,14 @@ svg {
 
   .app.sidebar-open .sidebar {
     transform: translateX(0);
+  }
+
+  .app.sidebar-open ~ .mobile-backdrop {
+    display: block;
+  }
+
+  .sidebar-head .sidebar-close {
+    display: inline-grid;
   }
 
   .chat-head {

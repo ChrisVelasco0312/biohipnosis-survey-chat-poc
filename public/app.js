@@ -500,6 +500,7 @@ async function createSession({ name, phone }) {
 }
 
 function openCreateModal() {
+  closeSidebar();
   showModal({
     title: 'Nueva entrevista',
     body: `<p>Simula un contacto de WhatsApp. El nombre se usa para la conversación; el celular es opcional y se guarda cifrado.</p>
@@ -1035,6 +1036,7 @@ function toggleInspector(force) {
     open = force ?? app.classList.contains('inspector-collapsed');
     app.classList.toggle('inspector-collapsed', !open);
   }
+  if (open) closeSidebar();
 }
 
 function closeInspector() {
@@ -1967,6 +1969,8 @@ async function openQuestionPicker() {
 
 function openTestLab() {
   if (state.authMode === 'on' && !isAdmin()) return;
+  closeSidebar();
+  closeInspector();
   $('#testlab').classList.add('open');
   $('#drawer-backdrop').classList.add('show');
 }
@@ -2277,7 +2281,15 @@ function bindChat() {
   $('#attachment-remove').addEventListener('click', hideAttachment);
   $('#btn-mic').addEventListener('click', openVoiceModal);
   $('#btn-chat-menu').addEventListener('click', openChatMenu);
-  $('#mobile-menu').addEventListener('click', () => $('#app').classList.add('sidebar-open'));
+  $('#mobile-menu').addEventListener('click', () => {
+    closeInspector();
+    $('#app').classList.add('sidebar-open');
+  });
+  $('#close-sidebar').addEventListener('click', closeSidebar);
+  $('#mobile-backdrop').addEventListener('click', () => {
+    closeSidebar();
+    closeInspector();
+  });
   $('#sidebar')?.addEventListener('click', (event) => {
     if (event.target.closest('[data-chat-id]')) closeSidebar();
   });

@@ -44,9 +44,14 @@
               <span>Entrevista inicial · POC</span>
             </div>
           </div>
-          <button class="icon-btn round" id="new-chat" title="Nueva conversación" aria-label="Nueva conversación">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          </button>
+          <div class="sidebar-head-actions">
+            <button class="icon-btn round" id="new-chat" title="Nueva conversación" aria-label="Nueva conversación">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+            <button class="icon-btn round sidebar-close" id="close-sidebar" title="Cerrar conversaciones" aria-label="Cerrar conversaciones">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
         </header>
 
         <label class="search">
@@ -223,6 +228,7 @@
       </aside>
     </div>
 
+    <div class="mobile-backdrop" id="mobile-backdrop" aria-hidden="true"></div>
     <div class="drawer-backdrop" id="drawer-backdrop"></div>
 
     <aside class="testlab" id="testlab" aria-label="Laboratorio de pruebas">
